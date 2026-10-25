@@ -1,12 +1,9 @@
 import React from 'react';
 import {
   Activity,
-  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   BarChart2,
-  CheckCircle,
-  HelpCircle,
   Percent,
   ShieldAlert,
   Zap,

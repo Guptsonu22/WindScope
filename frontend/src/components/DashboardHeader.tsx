@@ -3,7 +3,6 @@ import {
   Activity,
   Calendar,
   Clock,
-  Database,
   Moon,
   RefreshCw,
   Sun,

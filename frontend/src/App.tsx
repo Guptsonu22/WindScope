@@ -1,18 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Activity,
   AlertCircle,
-  BarChart3,
   Cpu,
   Database,
   Flame,
   Gauge,
   Layers,
   LineChart,
-  RefreshCw,
   Server,
-  Shield,
-  Zap,
 } from 'lucide-react';
 
 import { DashboardHeader } from './components/DashboardHeader';
@@ -27,7 +22,6 @@ import { tradeApi } from './services/api';
 import {
   DashboardOverviewResponse,
   DayAheadForecastResponse,
-  GateClosureOption,
   HealthResponse,
   MetaInfoResponse,
   SettlementPeriodError,

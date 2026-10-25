@@ -1,28 +1,21 @@
 import React, { useState } from 'react';
 import {
   Area,
-  Bar,
   Brush,
   CartesianGrid,
   ComposedChart,
   Legend,
   Line,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import {
-  AlertCircle,
   Calendar,
-  CheckCircle,
   Clock,
-  Eye,
   Maximize2,
-  Sliders,
   X,
-  Zap,
 } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
@@ -103,7 +96,7 @@ export const ForecastVsActualChart: React.FC<ForecastVsActualChartProps> = ({
   const activeData = viewMode === 'MONTH' && monthChartData.length > 0 ? monthChartData : dayChartData;
 
   // Custom Trading Desk Tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       const isDeficit = data.errorMw > 0; // Overforecast means wind deficit
