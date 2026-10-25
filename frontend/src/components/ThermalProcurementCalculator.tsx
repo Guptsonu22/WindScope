@@ -1,18 +1,5 @@
 import React, { useState } from 'react';
-import {
-  AlertTriangle,
-  BatteryCharging,
-  Calculator,
-  CheckCircle2,
-  DollarSign,
-  Flame,
-  Gauge,
-  HelpCircle,
-  Percent,
-  Play,
-  RotateCcw,
-  Zap,
-} from 'lucide-react';
+import { Flame, Percent, Play } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { ThermalProcurementRequest, ThermalProcurementResponse } from '../types';

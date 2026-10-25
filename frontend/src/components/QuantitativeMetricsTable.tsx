@@ -1,17 +1,5 @@
 import React, { useState } from 'react';
-import {
-  AlertCircle,
-  ArrowDownRight,
-  ArrowUpRight,
-  CheckCircle,
-  DollarSign,
-  Filter,
-  Flame,
-  Search,
-  Sliders,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react';
+import { DollarSign, Search } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { QuantitativeMetrics, SettlementPeriodData } from '../types';

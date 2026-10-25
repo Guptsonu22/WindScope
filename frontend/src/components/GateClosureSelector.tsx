@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Clock, Lock, PlayCircle } from 'lucide-react';
+import { Clock, Lock, PlayCircle } from 'lucide-react';
 import { GateClosureOption } from '../types';
 
 interface GateClosureSelectorProps {
