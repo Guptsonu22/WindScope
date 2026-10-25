@@ -204,6 +204,7 @@ export const App: React.FC = () => {
               <QuantitativeMetricsTable
                 metrics={forecastData.metrics}
                 periods={forecastData.periods}
+                targetDate={targetDate}
               />
             )}
           </div>
@@ -216,6 +217,7 @@ export const App: React.FC = () => {
               procurementData={procurementData}
               onRecalculate={handleRecalculateProcurement}
               isLoading={isLoading}
+              targetDate={targetDate}
             />
           </div>
         )}

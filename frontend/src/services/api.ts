@@ -80,6 +80,35 @@ export const tradeApi = {
     );
     return response.data;
   },
+
+  /**
+   * Fetch utility thermal gap and P90 safety buffer analysis
+   */
+  async getThermalGap(targetDate?: string, p90Buffer?: number): Promise<ThermalGapAnalysis> {
+    const params: Record<string, string | number> = {};
+    if (targetDate) params.target_date = targetDate;
+    if (p90Buffer !== undefined) params.p90_buffer = p90Buffer;
+    const response = await api.get<ThermalGapAnalysis>('/api/v1/metrics/thermal-gap', { params });
+    return response.data;
+  },
+
+  /**
+   * Fetch 48-period average error and uncertainty breakdown profile
+   */
+  async getSettlementProfile(): Promise<SettlementPeriodErrorProfile[]> {
+    const response = await api.get<SettlementPeriodErrorProfile[]>('/api/v1/metrics/settlement-profile');
+    return response.data;
+  },
+
+  /**
+   * Fetch forecast horizon lead-time decay metrics
+   */
+  async getHorizonDecay(deliveryDate?: string): Promise<HorizonDecayMetric[]> {
+    const params = deliveryDate ? { delivery_date: deliveryDate } : {};
+    const response = await api.get<HorizonDecayMetric[]>('/api/v1/metrics/horizon-decay', { params });
+    return response.data;
+  },
 };
 
 export default tradeApi;
+
