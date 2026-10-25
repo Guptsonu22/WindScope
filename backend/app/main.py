@@ -19,10 +19,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"CORS Allowed Origins: {settings.CORS_ORIGINS}")
     logger.info("=" * 60)
     try:
-        from app.services.elexon_client import ElexonClient
-        client = ElexonClient()
-        client.get_or_create_january_2026_data()
-        logger.info("Pre-warmed January 2026 Elexon data cache in memory.")
+        from app.services.elexon_client import get_elexon_client
+        from app.services.data_processor import get_data_processor
+        client = get_elexon_client()
+        act, fc = client.get_or_create_january_2026_data()
+        proc = get_data_processor()
+        proc.align_day_ahead_forecasts(act, fc, "11:00", start_date="2026-01-01", end_date="2026-01-31")
+        logger.info("Pre-warmed January 2026 Elexon data and alignment cache.")
     except Exception as e:
         logger.warning(f"Cache pre-warm skipped or failed: {e}")
     yield

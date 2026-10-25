@@ -20,6 +20,7 @@ class DataProcessor:
     def __init__(self, cache_dir: Optional[Path] = None):
         self.cache_dir = cache_dir or settings.DATA_CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._align_cache: Dict[str, pd.DataFrame] = {}
 
     # =========================================================================
     # CORE REQUIREMENT 2: DAY-AHEAD GATE CLOSURE MATCHING & ALIGNMENT
@@ -100,6 +101,10 @@ class DataProcessor:
         - absoluteErrorMW: |forecastErrorMW|
         - percentageError: (|forecastErrorMW| / actualGenerationMW) * 100
         """
+        cache_key = f"{gate_closure_time}|{delivery_date}|{start_date}|{end_date}"
+        if cache_key in self._align_cache:
+            return self._align_cache[cache_key].copy()
+
         # Convert inputs to clean DataFrames
         df_act = pd.DataFrame(actuals) if isinstance(actuals, list) else actuals.copy()
         df_fc = pd.DataFrame(forecasts) if isinstance(forecasts, list) else forecasts.copy()
@@ -228,6 +233,7 @@ class DataProcessor:
             "percentageError",
         ]
         aligned_df = merged[output_cols].copy()
+        self._align_cache[cache_key] = aligned_df.copy()
 
         return aligned_df
 
