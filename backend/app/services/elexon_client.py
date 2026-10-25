@@ -27,6 +27,8 @@ class ElexonClient:
         self.json_path = self.cache_dir / "jan_2026_wind_data.json"
         self._mem_actuals: Optional[List[Dict[str, Any]]] = None
         self._mem_forecasts: Optional[List[Dict[str, Any]]] = None
+        self._last_health: Optional[Dict[str, Any]] = None
+        self._last_health_ts: float = 0.0
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {
@@ -38,17 +40,26 @@ class ElexonClient:
         return headers
 
     async def check_health(self) -> Dict[str, Any]:
-        """Test connectivity to Elexon Insights Solution endpoint."""
+        """Test connectivity to Elexon Insights Solution endpoint with 60s TTL cache."""
+        import time as _pytime
+        now = _pytime.time()
+        if self._last_health is not None and (now - self._last_health_ts) < 60.0:
+            return self._last_health
+
         url = f"{self.base_url}/datasets"
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(url, headers=self._get_headers())
                 if resp.status_code == 200:
-                    return {"status": "connected", "latency_ms": resp.elapsed.total_seconds() * 1000}
-                return {"status": "degraded", "code": resp.status_code}
+                    res = {"status": "connected", "latency_ms": resp.elapsed.total_seconds() * 1000}
+                else:
+                    res = {"status": "degraded", "code": resp.status_code}
         except Exception as ex:
-            logger.warning(f"Elexon BMRS health probe failed: {ex}. Using local high-fidelity Parquet cache.")
-            return {"status": "mock_fallback", "detail": str(ex)}
+            res = {"status": "mock_fallback", "detail": str(ex)}
+
+        self._last_health = res
+        self._last_health_ts = now
+        return res
 
     # =========================================================================
     # CORE REQUIREMENT 1: LIVE STREAM INGESTION WITH FALLBACK
