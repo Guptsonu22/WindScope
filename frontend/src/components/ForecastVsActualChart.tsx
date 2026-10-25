@@ -12,7 +12,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, Eye, Layers, TrendingDown, TrendingUp } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { SettlementPeriodData } from '../types';

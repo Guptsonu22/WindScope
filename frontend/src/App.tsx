@@ -1,18 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Activity,
   AlertCircle,
-  BarChart3,
   Cpu,
   Database,
   Flame,
   Layers,
   LineChart,
-  RefreshCw,
   Server,
-  ShieldCheck,
-  TrendingUp,
-  Zap,
 } from 'lucide-react';
 
 import { DashboardHeader } from './components/DashboardHeader';

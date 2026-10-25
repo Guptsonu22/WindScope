@@ -4,11 +4,8 @@ import {
   Calendar,
   Clock,
   RefreshCw,
-  ShieldCheck,
-  TrendingUp,
   Zap,
 } from 'lucide-react';
-import { Badge } from './ui/Badge';
 import { HealthResponse } from '../types';
 
 interface DashboardHeaderProps {
@@ -81,7 +78,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              UK Day-Ahead Wind Forecast Accuracy & Thermal Procurement Hedging
+              UK Day-Ahead Wind Forecast Accuracy & Thermal Procurement Hedging • <span className="text-cyan-400 font-medium">{activeGateName}</span>
             </p>
           </div>
         </div>
