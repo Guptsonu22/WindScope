@@ -62,6 +62,47 @@ def validate_date_string(date_str: str, field_name: str) -> date:
         )
 
 
+def compute_settlement_period_errors(aligned_df: pd.DataFrame) -> List[SettlementPeriodError]:
+    """Fast vectorized calculation of 48 settlement period error statistics."""
+    if aligned_df.empty:
+        return []
+
+    df = aligned_df.copy()
+    f_col = df["forecastGenerationMW"]
+    a_col = df["actualGenerationMW"]
+    df["_abs_err"] = (f_col - a_col).abs()
+    df["_bias_err"] = f_col - a_col
+
+    grouped = (
+        df.groupby("settlementPeriod", as_index=False)
+        .agg(
+            avgActualMW=("actualGenerationMW", "mean"),
+            avgForecastMW=("forecastGenerationMW", "mean"),
+            maeMW=("_abs_err", "mean"),
+            biasMW=("_bias_err", "mean"),
+        )
+        .sort_values("settlementPeriod")
+    )
+
+    records = grouped.to_dict(orient="records")
+    results: List[SettlementPeriodError] = []
+    for r in records:
+        sp_int = int(r["settlementPeriod"])
+        start_m = (sp_int - 1) * 30
+        time_label = f"{start_m // 60:02d}:{start_m % 60:02d} - {(start_m + 30) // 60:02d}:{(start_m + 30) % 60:02d}"
+        results.append(
+            SettlementPeriodError(
+                periodNumber=sp_int,
+                timeLabel=time_label,
+                avgActualMW=round(float(r["avgActualMW"]), 2),
+                avgForecastMW=round(float(r["avgForecastMW"]), 2),
+                maeMW=round(float(r["maeMW"]), 2),
+                biasMW=round(float(r["biasMW"]), 2),
+            )
+        )
+    return results
+
+
 # =============================================================================
 # 1. CORE SYSTEM HEALTH & METADATA ENDPOINTS
 # =============================================================================
@@ -195,23 +236,7 @@ async def get_wind_overview(
     )
 
     # 3. 48-Period Settlement Period Errors
-    period_errors: List[SettlementPeriodError] = []
-    for sp, grp in sorted(aligned_df.groupby("settlementPeriod"), key=lambda x: x[0]):
-        sp_int = int(sp)
-        start_m = (sp_int - 1) * 30
-        time_label = f"{start_m // 60:02d}:{start_m % 60:02d} - {(start_m + 30) // 60:02d}:{(start_m + 30) % 60:02d}"
-        gf = grp["forecastGenerationMW"].values
-        ga = grp["actualGenerationMW"].values
-        period_errors.append(
-            SettlementPeriodError(
-                periodNumber=sp_int,
-                timeLabel=time_label,
-                avgActualMW=round(float(np.mean(ga)), 2),
-                avgForecastMW=round(float(np.mean(gf)), 2),
-                maeMW=round(calculate_mae(gf, ga), 2),
-                biasMW=round(calculate_mbe(gf, ga), 2),
-            )
-        )
+    period_errors = compute_settlement_period_errors(aligned_df)
 
     return DashboardOverviewResponse(
         dateRange=f"{startDate} to {endDate}",
@@ -351,24 +376,7 @@ async def get_settlement_analysis(
     if aligned_df.empty:
         raise HTTPException(status_code=404, detail="No data found for given parameters")
 
-    period_errors: List[SettlementPeriodError] = []
-    for sp, grp in sorted(aligned_df.groupby("settlementPeriod"), key=lambda x: x[0]):
-        sp_int = int(sp)
-        start_m = (sp_int - 1) * 30
-        time_label = f"{start_m // 60:02d}:{start_m % 60:02d} - {(start_m + 30) // 60:02d}:{(start_m + 30) % 60:02d}"
-        gf = grp["forecastGenerationMW"].values
-        ga = grp["actualGenerationMW"].values
-        period_errors.append(
-            SettlementPeriodError(
-                periodNumber=sp_int,
-                timeLabel=time_label,
-                avgActualMW=round(float(np.mean(ga)), 2),
-                avgForecastMW=round(float(np.mean(gf)), 2),
-                maeMW=round(calculate_mae(gf, ga), 2),
-                biasMW=round(calculate_mbe(gf, ga), 2),
-            )
-        )
-    return period_errors
+    return compute_settlement_period_errors(aligned_df)
 
 
 @router.post(

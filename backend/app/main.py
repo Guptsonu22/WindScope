@@ -18,6 +18,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"Elexon BMRS Endpoint: {settings.ELEXON_API_BASE_URL}")
     logger.info(f"CORS Allowed Origins: {settings.CORS_ORIGINS}")
     logger.info("=" * 60)
+    try:
+        from app.services.elexon_client import ElexonClient
+        client = ElexonClient()
+        client.get_or_create_january_2026_data()
+        logger.info("Pre-warmed January 2026 Elexon data cache in memory.")
+    except Exception as e:
+        logger.warning(f"Cache pre-warm skipped or failed: {e}")
     yield
     logger.info("WindScope trading portal backend shutting down...")
 
