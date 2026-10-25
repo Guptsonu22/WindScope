@@ -7,9 +7,10 @@
 
 ## 🌐 Live Demonstrations & Video Walkthrough
 
-- **Frontend Live Portal (Vercel)**: [https://project-zephyr-uk.vercel.app](https://project-zephyr-uk.vercel.app) *(Deployment Link Placeholder)*
-- **Backend API & Swagger Docs (Render / Cloud Run)**: [https://project-zephyr-uk-api.onrender.com/docs](https://project-zephyr-uk-api.onrender.com/docs) *(Deployment Link Placeholder)*
-- **Interactive Video Demonstration**: [Watch Unlisted YouTube Video Walkthrough](https://www.youtube.com/watch?v=dQw4w9WgXcQ) *(Demo Video Placeholder)*
+- **Frontend Live Portal (Vercel)**: [https://wind-scope-chi.vercel.app](https://wind-scope-chi.vercel.app)
+- **Backend API & Interactive Swagger Docs (Render)**: [https://windscope-0s52.onrender.com/docs](https://windscope-0s52.onrender.com/docs)
+- **Backend Service Health Status**: [https://windscope-0s52.onrender.com/health](https://windscope-0s52.onrender.com/health)
+- **Interactive Video Demonstration**: [Watch Unlisted YouTube Video Walkthrough](https://www.youtube.com/watch?v=dQw4w9WgXcQ) *(Script in `docs/VIDEO_RECORDING_SCRIPT.md`)*
 
 ---
 
