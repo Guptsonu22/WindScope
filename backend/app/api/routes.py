@@ -8,7 +8,10 @@ from app.schemas.models import (
     DayAheadForecastResponse,
     GateClosureOption,
     HealthResponse,
+    HorizonDecayMetric,
     QuantitativeMetrics,
+    SettlementPeriodErrorProfile,
+    ThermalGapAnalysis,
     ThermalProcurementRequest,
     ThermalProcurementResponse,
 )
@@ -161,6 +164,75 @@ async def get_metrics_summary(
         periods = processor.align_and_process_dataset(target_date, fc, act, prices)
 
     return metrics_engine.compute_quantitative_metrics(periods)
+
+
+@router.get(
+    "/metrics/thermal-gap",
+    response_model=ThermalGapAnalysis,
+    tags=["Quantitative Analytics"],
+    summary="Compute utility thermal gap, expected & P90 conservative procurement and imbalance exposure risk",
+)
+async def get_thermal_gap(
+    target_date: Optional[str] = Query("2026-01-15", description="Target delivery date (YYYY-MM-DD)"),
+    p90_buffer: Optional[float] = Query(None, description="Custom P90 safety buffer in MW. If omitted, calculated from historical errors."),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+    metrics_engine: MetricsEngine = Depends(get_metrics_engine),
+) -> ThermalGapAnalysis:
+    periods = processor.load_cache(target_date)
+    if not periods:
+        fc = await elexon_client.fetch_day_ahead_wind_forecast(target_date)
+        act = await elexon_client.fetch_wind_actual_outturn(target_date)
+        prices = await elexon_client.fetch_system_prices(target_date)
+        periods = processor.align_and_process_dataset(target_date, fc, act, prices)
+
+    forecast_mw = [p.forecast_mw for p in periods]
+    actual_mw = [p.actual_mw if p.actual_mw is not None else p.forecast_mw for p in periods]
+
+    return metrics_engine.calculate_thermal_gap(
+        forecast_mw=forecast_mw,
+        actual_mw=actual_mw,
+        p90_buffer_mw=p90_buffer,
+        target_date=target_date,
+    )
+
+
+@router.get(
+    "/metrics/settlement-profile",
+    response_model=List[SettlementPeriodErrorProfile],
+    tags=["Quantitative Analytics"],
+    summary="Calculate average error and uncertainty profile across all 48 settlement periods",
+)
+async def get_settlement_profile(
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+    metrics_engine: MetricsEngine = Depends(get_metrics_engine),
+) -> List[SettlementPeriodErrorProfile]:
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    aligned_df = processor.align_day_ahead_forecasts(actuals, forecasts, gate_closure_time="11:00")
+    return metrics_engine.calculate_settlement_period_breakdown(aligned_df)
+
+
+@router.get(
+    "/metrics/horizon-decay",
+    response_model=List[HorizonDecayMetric],
+    tags=["Quantitative Analytics"],
+    summary="Evaluate accuracy decay/improvement across forecast lead time horizons (D-1 11:00, D-1 14:00, Intraday H-4, H-1)",
+)
+async def get_horizon_decay(
+    delivery_date: Optional[str] = Query("2026-01-15", description="Target delivery date (YYYY-MM-DD)"),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+    metrics_engine: MetricsEngine = Depends(get_metrics_engine),
+) -> List[HorizonDecayMetric]:
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    return metrics_engine.evaluate_forecast_horizon_decay(
+        actuals=actuals,
+        forecasts=forecasts,
+        delivery_date=delivery_date,
+        data_processor=processor,
+    )
+
 
 
 @router.post(

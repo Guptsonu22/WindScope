@@ -117,3 +117,47 @@ def test_metrics_engine_unit_math():
     assert metrics.directional_bias_mw == 0.0
     assert metrics.total_short_volume_mwh == 50.0  # 100 MW * 0.5 hr
     assert metrics.total_long_volume_mwh == 50.0   # 100 MW * 0.5 hr
+
+
+def test_get_thermal_gap_endpoint():
+    """Verify /api/v1/metrics/thermal-gap returns expected thermal and conservative P90 metrics."""
+    response = client.get("/api/v1/metrics/thermal-gap?target_date=2026-01-15")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["target_date"] == "2026-01-15"
+    assert "p90_buffer_mw" in data
+    assert "total_demand_mwh" in data
+    assert "total_thermal_expected_mwh" in data
+    assert "total_thermal_conservative_mwh" in data
+    assert len(data["periods"]) == 48
+
+    p1 = data["periods"][0]
+    assert "demand_mw" in p1
+    assert "thermal_expected_mw" in p1
+    assert "thermal_conservative_mw" in p1
+    assert p1["thermal_conservative_mw"] >= p1["thermal_expected_mw"]
+
+
+def test_get_settlement_profile_endpoint():
+    """Verify /api/v1/metrics/settlement-profile returns all 48 settlement period profiles."""
+    response = client.get("/api/v1/metrics/settlement-profile")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) == 48
+    sps = [p["settlement_period"] for p in data]
+    assert sps == list(range(1, 49))
+    assert all("mae_mw" in p and "uncertainty_tier" in p for p in data)
+
+
+def test_get_horizon_decay_endpoint():
+    """Verify /api/v1/metrics/horizon-decay returns lead time decay comparison."""
+    response = client.get("/api/v1/metrics/horizon-decay?delivery_date=2026-01-15")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) >= 3
+    horizons = [d["horizon"] for d in data]
+    assert any("Day-Ahead" in h for h in horizons)
+    assert any("H-4" in h for h in horizons)
+

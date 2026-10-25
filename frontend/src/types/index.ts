@@ -37,7 +37,66 @@ export interface QuantitativeMetrics {
   total_long_volume_mwh: number;
   net_imbalance_volume_mwh: number;
   estimated_cashout_exposure_gbp: number;
+  wmape_pct?: number;
+  mbe_mw?: number;
+  pearson_correlation?: number;
+  r2_score?: number;
+  p10_error_mw?: number;
+  p50_error_mw?: number;
+  p90_error_mw?: number;
+  p95_error_mw?: number;
+  p90_abs_error_mw?: number;
 }
+
+export interface SettlementPeriodErrorProfile {
+  settlement_period: number;
+  time_slot: string;
+  mean_forecast_mw: number;
+  mean_actual_mw: number;
+  mae_mw: number;
+  rmse_mw: number;
+  wmape_pct: number;
+  mbe_mw: number;
+  p90_abs_error_mw: number;
+  uncertainty_tier: 'HIGH_VOLATILITY' | 'MODERATE' | 'STABLE';
+}
+
+export interface HorizonDecayMetric {
+  horizon: string;
+  lead_time_hours: number;
+  mae_mw: number;
+  rmse_mw: number;
+  wmape_pct: number;
+  mbe_mw: number;
+  pearson_r: number;
+  mae_reduction_pct_vs_day_ahead: number;
+}
+
+export interface ThermalGapPeriod {
+  settlement_period: number;
+  time_slot: string;
+  demand_mw: number;
+  wind_forecast_mw: number;
+  wind_actual_mw?: number | null;
+  thermal_expected_mw: number;
+  thermal_conservative_mw: number;
+  p90_buffer_mw: number;
+  imbalance_exposure_mw: number;
+}
+
+export interface ThermalGapAnalysis {
+  target_date: string;
+  p90_buffer_mw: number;
+  total_demand_mwh: number;
+  total_thermal_expected_mwh: number;
+  total_thermal_conservative_mwh: number;
+  peak_thermal_expected_mw: number;
+  peak_thermal_conservative_mw: number;
+  peak_thermal_period: number;
+  total_safety_margin_mwh: number;
+  periods: ThermalGapPeriod[];
+}
+
 
 export interface ThermalProcurementItem {
   settlement_period: number;

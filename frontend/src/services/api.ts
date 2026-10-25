@@ -3,7 +3,10 @@ import {
   DayAheadForecastResponse,
   GateClosureOption,
   HealthResponse,
+  HorizonDecayMetric,
   QuantitativeMetrics,
+  SettlementPeriodErrorProfile,
+  ThermalGapAnalysis,
   ThermalProcurementRequest,
   ThermalProcurementResponse,
 } from '../types';
