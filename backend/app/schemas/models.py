@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # =============================================================================
@@ -237,10 +237,13 @@ class ThermalProcurementItem(BaseModel):
 
 class ThermalProcurementRequest(BaseModel):
     """Parameters for thermal procurement analysis and asset dispatch simulation."""
-    targetDate: Optional[str] = Field(default="2026-01-15", alias="target_date", description="Target delivery date (YYYY-MM-DD)")
-    customerDemandMW: Optional[float] = Field(default=None, alias="customer_demand_mw", description="Customer demand baseline in MW")
-    gateClosureTime: str = Field(default="11:00", alias="gate_closure_time", description="Gate closure run time (e.g. 11:00)")
-    safetyBufferPercentile: float = Field(default=90.0, alias="safety_buffer_percentile", description="Safety buffer percentile e.g. 90")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    targetDate: Optional[str] = Field(default=None, description="Target delivery date (YYYY-MM-DD)")
+    target_date: Optional[str] = Field(default=None, description="Target delivery date (YYYY-MM-DD)")
+    customerDemandMW: Optional[float] = Field(default=None, description="Customer demand baseline in MW")
+    gateClosureTime: str = Field(default="11:00", description="Gate closure run time (e.g. 11:00)")
+    safetyBufferPercentile: float = Field(default=90.0, description="Safety buffer percentile e.g. 90")
 
     # Asset simulation parameters (retained for backward compatibility)
     reserve_margin_pct: Optional[float] = Field(default=12.0, ge=0.0, le=50.0)
@@ -248,16 +251,16 @@ class ThermalProcurementRequest(BaseModel):
     ocgt_peaker_price_gbp: Optional[float] = Field(default=135.00)
     bess_discharge_cost_gbp: Optional[float] = Field(default=95.00)
 
-    class Config:
-        populate_by_name = True
-
 
 class ThermalProcurementResponse(BaseModel):
     """Thermal procurement schedule and portfolio hedge advice for trading dispatchers."""
-    targetDate: str = Field(..., alias="target_date", description="Delivery date (YYYY-MM-DD)")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    targetDate: str = Field(default="2026-01-15", description="Delivery date (YYYY-MM-DD)")
     hourlySchedule: Optional[List[HourlyThermalScheduleItem]] = Field(
-        default=None, alias="hourly_schedule", description="Hourly schedule of demand, wind, and thermal procure"
+        default=None, description="Hourly schedule of demand, wind, and thermal procure"
     )
+    target_date: Optional[str] = None
 
     # Optional fields for asset portfolio breakdown
     reserve_margin_pct: Optional[float] = 12.0
@@ -268,9 +271,6 @@ class ThermalProcurementResponse(BaseModel):
     peak_period: Optional[int] = 1
     asset_breakdown_mwh: Optional[Dict[str, float]] = None
     recommendations: Optional[List[ThermalProcurementItem]] = None
-
-    class Config:
-        populate_by_name = True
 
 
 class DayAheadForecastResponse(BaseModel):

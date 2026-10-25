@@ -148,35 +148,27 @@ class DataProcessor:
         # Deduplicate actuals by startTime (take last if multiple)
         df_act = df_act.sort_values("startTime_dt").drop_duplicates(subset=["startTime_dt"], keep="last")
 
-        # Group forecasts by delivery day to apply Gate Closure cutoff per day D
-        matched_forecast_rows = []
+        # Fast Vectorized Gate Closure Matching
+        clean_spec = gate_closure_time.strip().lower()
+        if "h-4" in clean_spec or "intra-h4" in clean_spec:
+            df_fc["cutoff_dt"] = df_fc["startTime_dt"] - timedelta(hours=4)
+            eligible = df_fc[df_fc["publishTime_dt"] <= df_fc["cutoff_dt"]].copy()
+        elif "h-1" in clean_spec or "intra-h1" in clean_spec:
+            df_fc["cutoff_dt"] = df_fc["startTime_dt"] - timedelta(hours=1)
+            eligible = df_fc[df_fc["publishTime_dt"] <= df_fc["cutoff_dt"]].copy()
+        else:
+            # Fixed Day-Ahead Gate Closure per delivery day (e.g. D-1 at 11:00 GMT)
+            df_fc["delivery_date"] = df_fc["startTime_dt"].dt.date
+            unique_days = df_fc["delivery_date"].unique()
+            day_cutoff_map = {}
+            for d in unique_days:
+                dummy_dt = datetime.combine(d, time(0, 0), tzinfo=timezone.utc)
+                day_cutoff_map[d] = self.parse_gate_closure_time(gate_closure_time, d, dummy_dt)
 
-        delivery_days = df_fc["startTime_dt"].dt.date.unique()
+            df_fc["cutoff_dt"] = df_fc["delivery_date"].map(day_cutoff_map)
+            eligible = df_fc[df_fc["publishTime_dt"] <= df_fc["cutoff_dt"]].copy()
 
-        for d_day in delivery_days:
-            day_forecasts = df_fc[df_fc["startTime_dt"].dt.date == d_day]
-
-            # Unique settlement periods for this delivery day
-            unique_starts = day_forecasts["startTime_dt"].unique()
-
-            for period_start in unique_starts:
-                period_dt = pd.Timestamp(period_start).to_pydatetime()
-
-                # Derive cutoff for this period and delivery day
-                cutoff_dt = self.parse_gate_closure_time(gate_closure_time, d_day, period_dt)
-
-                # Filter forecasts published on or before gate closure cutoff
-                eligible_forecasts = day_forecasts[
-                    (day_forecasts["startTime_dt"] == period_start) &
-                    (day_forecasts["publishTime_dt"] <= cutoff_dt)
-                ]
-
-                if not eligible_forecasts.empty:
-                    # Pick the LATEST available forecast prior to cutoff (max publishTime)
-                    latest_fc = eligible_forecasts.sort_values("publishTime_dt").iloc[-1]
-                    matched_forecast_rows.append(latest_fc)
-
-        if not matched_forecast_rows:
+        if eligible.empty:
             logger.warning("No forecasts satisfied the gate closure criteria.")
             return pd.DataFrame(columns=[
                 "startTime", "settlementPeriod", "publishTime",
@@ -184,12 +176,17 @@ class DataProcessor:
                 "forecastErrorMW", "absoluteErrorMW", "percentageError"
             ])
 
-        matched_fc_df = pd.DataFrame(matched_forecast_rows).drop_duplicates(subset=["startTime_dt"])
+        # Pick the LATEST available forecast prior to cutoff (max publishTime per period)
+        matched_fc_df = (
+            eligible.sort_values("publishTime_dt")
+            .groupby("startTime_dt", as_index=False)
+            .last()
+        )
 
         # Merge Actuals and Selected Pre-Gate Forecasts on startTime_dt
         merged = pd.merge(
             df_act[["startTime_dt", "actualGenerationMW"]],
-            matched_fc_df[["startTime_dt", "publishTime_dt", "forecastGenerationMW"]],
+            matched_fc_df[["startTime_dt", "publishTime", "publishTime_dt", "forecastGenerationMW"]],
             on="startTime_dt",
             how="inner"
         )

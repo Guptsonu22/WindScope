@@ -593,11 +593,12 @@ class MetricsEngine:
                     )
                 )
 
-        target_date = params.target_date or (periods[0].start_time[:10] if periods else "2026-01-15")
+        target_date = getattr(params, "target_date", None) or getattr(params, "targetDate", None) or (periods[0].start_time[:10] if periods else "2026-01-15")
 
         return ThermalProcurementResponse(
+            targetDate=target_date,
             target_date=target_date,
-            reserve_margin_pct=params.reserve_margin_pct,
+            reserve_margin_pct=getattr(params, "reserve_margin_pct", 12.0) or 12.0,
             total_thermal_capacity_needed_mw=round(total_capacity_mw, 1),
             total_energy_procured_mwh=round(total_energy_mwh, 2),
             total_procurement_budget_gbp=round(total_budget_gbp, 2),
