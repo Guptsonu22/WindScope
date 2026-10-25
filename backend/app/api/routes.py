@@ -91,6 +91,7 @@ async def get_day_ahead_forecast(
             forecast_raw=forecast_raw,
             actual_raw=actual_raw,
             prices_raw=prices_raw,
+            gate_closure_time=gate_closure_id,
         )
         data_source = "elexon_insights"
 
@@ -113,6 +114,24 @@ async def get_day_ahead_forecast(
         periods=periods,
         metrics=metrics,
     )
+
+
+@router.get(
+    "/forecast/gate-comparison",
+    tags=["Day-Ahead Trading"],
+    summary="Compare forecast accuracy across multiple gate closure times (09:00, 11:00, 14:00, Intraday)",
+)
+async def get_gate_comparison(
+    target_date: Optional[str] = Query(None, description="Delivery date e.g. 2026-01-15"),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+):
+    if not target_date:
+        target_date = "2026-01-15"
+    actuals = await elexon_client.fetch_actual_wind(target_date, target_date)
+    forecasts = await elexon_client.fetch_forecast_wind(target_date, target_date)
+    comp_df = processor.compare_gate_closure_accuracies(actuals, forecasts, target_date)
+    return comp_df.to_dict(orient="records")
 
 
 @router.get(
