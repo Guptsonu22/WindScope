@@ -153,3 +153,75 @@ export interface DayAheadForecastResponse {
   metrics: QuantitativeMetrics;
   procurement_summary?: Record<string, number>;
 }
+
+// RESTful v1 Endpoints Types
+export interface TimeseriesPoint {
+  startTime: string;
+  publishTime: string;
+  forecastMW: number;
+  actualMW: number | null;
+  errorMW: number | null;
+  settlementPeriod: number;
+}
+
+export interface MetricSummary {
+  mae: number;
+  rmse: number;
+  mape: number;
+  wmape: number;
+  bias: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  totalGenerationForecastMWh: number;
+  totalGenerationActualMWh: number;
+}
+
+export interface SettlementPeriodError {
+  periodNumber: number;
+  timeLabel: string;
+  avgActualMW: number;
+  avgForecastMW: number;
+  maeMW: number;
+  biasMW: number;
+}
+
+export interface HourlyThermalScheduleItem {
+  time: string;
+  demand: number;
+  forecastWind: number;
+  recommendedThermalProcureMW: number;
+  safetyReserveMW: number;
+}
+
+export interface ThermalAdvisorRequest {
+  targetDate: string;
+  customerDemandMW: number;
+  gateClosureTime?: string;
+  safetyBufferPercentile?: number;
+}
+
+export interface ThermalAdvisorResponse {
+  targetDate: string;
+  hourlySchedule: HourlyThermalScheduleItem[];
+  riskMarginMw?: number;
+  totalRecommendedThermalMWh?: number;
+  confidencePercentile?: number;
+}
+
+export interface DashboardOverviewResponse {
+  dateRange: string;
+  metrics: MetricSummary;
+  timeseries: TimeseriesPoint[];
+  periodErrors: SettlementPeriodError[];
+}
+
+export interface MetaInfoResponse {
+  dataSource: string;
+  elexonBmrsStatus: string;
+  targetPeriod: string;
+  version: string;
+  aiToolsDisclosure: string;
+  lastUpdated: string;
+}
+

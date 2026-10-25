@@ -108,7 +108,69 @@ export const tradeApi = {
     const response = await api.get<HorizonDecayMetric[]>('/api/v1/metrics/horizon-decay', { params });
     return response.data;
   },
+
+  /**
+   * RESTful v1 Endpoints (Overview, Timeseries, Metrics, Settlement, Advisor, Meta)
+   */
+  async getOverview(
+    startDate: string = '2026-01-01',
+    endDate: string = '2026-01-31',
+    gateClosureTime: string = '11:00'
+  ) {
+    const response = await api.get('/api/v1/wind/overview', {
+      params: { startDate, endDate, gateClosureTime },
+    });
+    return response.data;
+  },
+
+  async getWindTimeseries(options: {
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    gateClosureTime?: string;
+  }) {
+    const response = await api.get('/api/v1/wind/timeseries', { params: options });
+    return response.data;
+  },
+
+  async getWindMetrics(
+    startDate: string = '2026-01-01',
+    endDate: string = '2026-01-31',
+    gateClosureTime: string = '11:00'
+  ) {
+    const response = await api.get('/api/v1/wind/metrics', {
+      params: { startDate, endDate, gateClosureTime },
+    });
+    return response.data;
+  },
+
+  async getWindSettlementAnalysis(
+    startDate: string = '2026-01-01',
+    endDate: string = '2026-01-31',
+    gateClosureTime: string = '11:00'
+  ) {
+    const response = await api.get('/api/v1/wind/settlement-analysis', {
+      params: { startDate, endDate, gateClosureTime },
+    });
+    return response.data;
+  },
+
+  async getThermalAdvisor(request: {
+    targetDate: string;
+    customerDemandMW: number;
+    gateClosureTime?: string;
+    safetyBufferPercentile?: number;
+  }) {
+    const response = await api.post('/api/v1/procurement/thermal-advisor', request);
+    return response.data;
+  },
+
+  async getMetaInfo() {
+    const response = await api.get('/api/v1/meta/info');
+    return response.data;
+  },
 };
 
 export default tradeApi;
+
 
