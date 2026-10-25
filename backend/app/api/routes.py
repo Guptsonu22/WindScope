@@ -230,14 +230,24 @@ async def get_gate_closures() -> List[GateClosureOption]:
 
     return [
         GateClosureOption(
+            id="d1-1100",
+            name="Day-Ahead 11:00 Auction (EPEX/N2EX)",
+            short_code="DA-11",
+            target_date=tomorrow_str,
+            closure_time="11:00 GMT",
+            is_active=True,
+            status="TRADING",
+            description="Primary UK Day-Ahead EPEX SPOT / N2EX power auction gate closure. Bids matched against pre-11:00 forecasts.",
+        ),
+        GateClosureOption(
             id="d1-1200",
             name="Day-Ahead 12:00 Power Auction",
             short_code="DA-12",
             target_date=tomorrow_str,
-            closure_time="12:00 BST",
-            is_active=True,
-            status="TRADING",
-            description="Primary UK Day-Ahead Nord Pool / EPEX SPOT power exchange matching gate closure.",
+            closure_time="12:00 GMT",
+            is_active=False,
+            status="SCHEDULED",
+            description="Secondary UK Day-Ahead exchange matching and intra-utility schedule nominations.",
         ),
         GateClosureOption(
             id="d1-1700",

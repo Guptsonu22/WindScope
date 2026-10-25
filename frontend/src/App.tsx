@@ -29,12 +29,8 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'OPERATIONS' | 'THERMAL_HEDGING' | 'DIAGNOSTICS'>('OPERATIONS');
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [gateClosures, setGateClosures] = useState<GateClosureOption[]>([]);
-  const [selectedGateId, setSelectedGateId] = useState<string>('d1-1200');
-  const [targetDate, setTargetDate] = useState<string>(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split('T')[0];
-  });
+  const [selectedGateId, setSelectedGateId] = useState<string>('d1-1100');
+  const [targetDate, setTargetDate] = useState<string>('2026-01-15');
   const [forecastData, setForecastData] = useState<DayAheadForecastResponse | null>(null);
   const [procurementData, setProcurementData] = useState<ThermalProcurementResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
