@@ -5,11 +5,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://windscope-backend.onrender.com/api/:path*"
+      "destination": "https://windscope-0s52.onrender.com/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://windscope-backend.onrender.com/health"
+      "destination": "https://windscope-0s52.onrender.com/health"
     },
     {
       "source": "/(.*)",
