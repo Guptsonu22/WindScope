@@ -99,7 +99,11 @@ async def get_day_ahead_forecast(
     metrics = metrics_engine.compute_quantitative_metrics(periods)
 
     gate_names = {
+        "d1-1100": "Day-Ahead 11:00 Power Auction (EPEX/N2EX)",
+        "11:00": "Day-Ahead 11:00 Power Auction (EPEX/N2EX)",
+        "09:00": "Day-Ahead 09:00 Early Outlook",
         "d1-1200": "Day-Ahead 12:00 Auction Gate Closure",
+        "14:00": "Day-Ahead 14:00 Post-Auction Adjustment",
         "d1-1700": "Day-Ahead 17:00 Interim Balancing Run",
         "intra-h4": "Intraday H-4 Continuous Trading",
         "intra-h1": "Intraday H-1 Final Physical Notification (FPN)",
