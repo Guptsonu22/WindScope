@@ -1,26 +1,70 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+import re
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+import numpy as np
+import pandas as pd
 
 from app.config import settings
 from app.core.logging import logger
 from app.schemas.models import (
+    DashboardOverviewResponse,
     DayAheadForecastResponse,
     GateClosureOption,
     HealthResponse,
     HorizonDecayMetric,
+    HourlyThermalScheduleItem,
+    MetaInfoResponse,
+    MetricSummary,
     QuantitativeMetrics,
+    SettlementPeriodData,
+    SettlementPeriodError,
     SettlementPeriodErrorProfile,
     ThermalGapAnalysis,
     ThermalProcurementRequest,
     ThermalProcurementResponse,
+    TimeseriesPoint,
 )
 from app.services.data_processor import DataProcessor, get_data_processor
 from app.services.elexon_client import ElexonClient, get_elexon_client
-from app.services.metrics_engine import MetricsEngine, get_metrics_engine
+from app.services.metrics_engine import (
+    MetricsEngine,
+    calculate_error_percentiles,
+    calculate_mae,
+    calculate_mape,
+    calculate_mbe,
+    calculate_rmse,
+    calculate_wmape,
+    get_metrics_engine,
+)
 
 router = APIRouter()
 
+
+def validate_date_string(date_str: str, field_name: str) -> date:
+    """Validate ISO YYYY-MM-DD date format, raising HTTP 422 if malformed."""
+    if not date_str or not isinstance(date_str, str):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Field '{field_name}' is required and must be a string formatted as YYYY-MM-DD.",
+        )
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str.strip()):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid {field_name} format: '{date_str}'. Expected ISO date format YYYY-MM-DD.",
+        )
+    try:
+        return datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+    except ValueError as err:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid {field_name} date value: '{date_str}'. {str(err)}",
+        )
+
+
+# =============================================================================
+# 1. CORE SYSTEM HEALTH & METADATA ENDPOINTS
+# =============================================================================
 
 @router.get(
     "/health",
@@ -50,6 +94,382 @@ async def get_health(
 
 
 @router.get(
+    "/meta/info",
+    response_model=MetaInfoResponse,
+    tags=["System Health"],
+    summary="Returns platform metadata, Elexon BMRS status, target evaluation period, and AI disclosure",
+)
+async def get_meta_info(
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+) -> MetaInfoResponse:
+    """Returns metadata including data sources, BMRS status, evaluation period, version, and AI tools disclosure."""
+    health = await elexon_client.check_health()
+    return MetaInfoResponse(
+        dataSource="Elexon BMRS (Insights Solution API v1) FUELHH & WINDFOR streams",
+        elexonBmrsStatus=health.get("status", "connected"),
+        targetPeriod="January 2026",
+        version=settings.VERSION,
+        aiToolsDisclosure="Architected with Google DeepMind Advanced Agentic Coding for UK Day-Ahead power procurement desks.",
+        lastUpdated=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+
+
+# =============================================================================
+# 2. RESTFUL WIND ANALYTICS & OVERVIEW ENDPOINTS (TASK SPECIFICATION)
+# =============================================================================
+
+@router.get(
+    "/wind/overview",
+    response_model=DashboardOverviewResponse,
+    tags=["Wind Overview"],
+    summary="Consolidated monthly/range overview with metrics, timeseries, and 48-period error breakdown",
+)
+async def get_wind_overview(
+    startDate: str = Query("2026-01-01", description="Start date in YYYY-MM-DD format"),
+    endDate: str = Query("2026-01-31", description="End date in YYYY-MM-DD format"),
+    gateClosureTime: str = Query("11:00", description="Gate closure run time (default '11:00' UK Day-Ahead)"),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+) -> DashboardOverviewResponse:
+    """
+    Returns consolidated overview including:
+    - High-level statistical accuracy metrics (MAE, RMSE, wMAPE, MAPE, MBE Bias, P10/P50/P90)
+    - Full 30-minute timeseries actual vs forecast points
+    - Error breakdown across all 48 settlement periods.
+    """
+    validate_date_string(startDate, "startDate")
+    validate_date_string(endDate, "endDate")
+
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    aligned_df = processor.align_day_ahead_forecasts(
+        actuals=actuals,
+        forecasts=forecasts,
+        gate_closure_time=gateClosureTime,
+        start_date=startDate,
+        end_date=endDate,
+    )
+
+    if aligned_df.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No aligned wind forecast/actual records found for date range {startDate} to {endDate}.",
+        )
+
+    # 1. Timeseries points
+    timeseries: List[TimeseriesPoint] = []
+    for _, row in aligned_df.iterrows():
+        f_val = float(row["forecastGenerationMW"])
+        a_val = float(row["actualGenerationMW"]) if pd.notnull(row["actualGenerationMW"]) else None
+        err = float(row["forecastErrorMW"]) if pd.notnull(row["forecastErrorMW"]) else (f_val - a_val if a_val is not None else None)
+        timeseries.append(
+            TimeseriesPoint(
+                startTime=str(row["startTime"]),
+                publishTime=str(row["publishTime"]),
+                forecastMW=round(f_val, 1),
+                actualMW=round(a_val, 1) if a_val is not None else None,
+                errorMW=round(err, 1) if err is not None else None,
+                settlementPeriod=int(row["settlementPeriod"]),
+            )
+        )
+
+    # 2. Mathematical Metric Summary
+    f_vals = aligned_df["forecastGenerationMW"].values
+    a_vals = aligned_df["actualGenerationMW"].values
+    mae = calculate_mae(f_vals, a_vals)
+    rmse = calculate_rmse(f_vals, a_vals)
+    mape = calculate_mape(f_vals, a_vals)
+    wmape = calculate_wmape(f_vals, a_vals)
+    bias = calculate_mbe(f_vals, a_vals)
+    pcts = calculate_error_percentiles(f_vals, a_vals, percentiles=(10, 50, 90))
+    total_fc_mwh = float(np.sum(f_vals) * 0.5)
+    total_act_mwh = float(np.sum(a_vals) * 0.5)
+
+    metrics = MetricSummary(
+        mae=round(mae, 2),
+        rmse=round(rmse, 2),
+        mape=round(mape, 2),
+        wmape=round(wmape, 2),
+        bias=round(bias, 2),
+        p10=round(pcts.get("P10", 0.0), 2),
+        p50=round(pcts.get("P50", 0.0), 2),
+        p90=round(pcts.get("P90", 0.0), 2),
+        totalGenerationForecastMWh=round(total_fc_mwh, 2),
+        totalGenerationActualMWh=round(total_act_mwh, 2),
+    )
+
+    # 3. 48-Period Settlement Period Errors
+    period_errors: List[SettlementPeriodError] = []
+    for sp, grp in sorted(aligned_df.groupby("settlementPeriod"), key=lambda x: x[0]):
+        sp_int = int(sp)
+        start_m = (sp_int - 1) * 30
+        time_label = f"{start_m // 60:02d}:{start_m % 60:02d} - {(start_m + 30) // 60:02d}:{(start_m + 30) % 60:02d}"
+        gf = grp["forecastGenerationMW"].values
+        ga = grp["actualGenerationMW"].values
+        period_errors.append(
+            SettlementPeriodError(
+                periodNumber=sp_int,
+                timeLabel=time_label,
+                avgActualMW=round(float(np.mean(ga)), 2),
+                avgForecastMW=round(float(np.mean(gf)), 2),
+                maeMW=round(calculate_mae(gf, ga), 2),
+                biasMW=round(calculate_mbe(gf, ga), 2),
+            )
+        )
+
+    return DashboardOverviewResponse(
+        dateRange=f"{startDate} to {endDate}",
+        metrics=metrics,
+        timeseries=timeseries,
+        periodErrors=period_errors,
+    )
+
+
+@router.get(
+    "/wind/timeseries",
+    response_model=List[TimeseriesPoint],
+    tags=["Wind Overview"],
+    summary="Get 30-min resolution actuals vs forecasts for a single day or date range",
+)
+async def get_wind_timeseries(
+    date: Optional[str] = Query(None, description="Single day view (YYYY-MM-DD)"),
+    startDate: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    endDate: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    gateClosureTime: str = Query("11:00", description="Gate closure run time"),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+) -> List[TimeseriesPoint]:
+    """Returns 30-minute resolution wind generation actual outturns vs forecasts."""
+    if date:
+        validate_date_string(date, "date")
+        s_date, e_date = date, date
+    else:
+        s_date = startDate or "2026-01-01"
+        e_date = endDate or "2026-01-31"
+        validate_date_string(s_date, "startDate")
+        validate_date_string(e_date, "endDate")
+
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    aligned_df = processor.align_day_ahead_forecasts(
+        actuals=actuals,
+        forecasts=forecasts,
+        gate_closure_time=gateClosureTime,
+        start_date=s_date,
+        end_date=e_date,
+    )
+
+    timeseries: List[TimeseriesPoint] = []
+    for _, row in aligned_df.iterrows():
+        f_val = float(row["forecastGenerationMW"])
+        a_val = float(row["actualGenerationMW"]) if pd.notnull(row["actualGenerationMW"]) else None
+        err = float(row["forecastErrorMW"]) if pd.notnull(row["forecastErrorMW"]) else (f_val - a_val if a_val is not None else None)
+        timeseries.append(
+            TimeseriesPoint(
+                startTime=str(row["startTime"]),
+                publishTime=str(row["publishTime"]),
+                forecastMW=round(f_val, 1),
+                actualMW=round(a_val, 1) if a_val is not None else None,
+                errorMW=round(err, 1) if err is not None else None,
+                settlementPeriod=int(row["settlementPeriod"]),
+            )
+        )
+    return timeseries
+
+
+@router.get(
+    "/wind/metrics",
+    response_model=MetricSummary,
+    tags=["Wind Overview"],
+    summary="Returns statistical accuracy metrics breakdown for date range",
+)
+async def get_wind_metrics(
+    startDate: str = Query("2026-01-01", description="Start date (YYYY-MM-DD)"),
+    endDate: str = Query("2026-01-31", description="End date (YYYY-MM-DD)"),
+    gateClosureTime: str = Query("11:00", description="Gate closure run time"),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+) -> MetricSummary:
+    """Returns exact error metrics (MAE, RMSE, wMAPE, MAPE, MBE, P10, P50, P90)."""
+    validate_date_string(startDate, "startDate")
+    validate_date_string(endDate, "endDate")
+
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    aligned_df = processor.align_day_ahead_forecasts(
+        actuals=actuals,
+        forecasts=forecasts,
+        gate_closure_time=gateClosureTime,
+        start_date=startDate,
+        end_date=endDate,
+    )
+
+    if aligned_df.empty:
+        raise HTTPException(status_code=404, detail="No data found for given parameters")
+
+    f_vals = aligned_df["forecastGenerationMW"].values
+    a_vals = aligned_df["actualGenerationMW"].values
+    mae = calculate_mae(f_vals, a_vals)
+    rmse = calculate_rmse(f_vals, a_vals)
+    mape = calculate_mape(f_vals, a_vals)
+    wmape = calculate_wmape(f_vals, a_vals)
+    bias = calculate_mbe(f_vals, a_vals)
+    pcts = calculate_error_percentiles(f_vals, a_vals, percentiles=(10, 50, 90))
+    total_fc_mwh = float(np.sum(f_vals) * 0.5)
+    total_act_mwh = float(np.sum(a_vals) * 0.5)
+
+    return MetricSummary(
+        mae=round(mae, 2),
+        rmse=round(rmse, 2),
+        mape=round(mape, 2),
+        wmape=round(wmape, 2),
+        bias=round(bias, 2),
+        p10=round(pcts.get("P10", 0.0), 2),
+        p50=round(pcts.get("P50", 0.0), 2),
+        p90=round(pcts.get("P90", 0.0), 2),
+        totalGenerationForecastMWh=round(total_fc_mwh, 2),
+        totalGenerationActualMWh=round(total_act_mwh, 2),
+    )
+
+
+@router.get(
+    "/wind/settlement-analysis",
+    response_model=List[SettlementPeriodError],
+    tags=["Wind Overview"],
+    summary="Returns error breakdown for all 48 settlement periods",
+)
+async def get_settlement_analysis(
+    startDate: str = Query("2026-01-01", description="Start date (YYYY-MM-DD)"),
+    endDate: str = Query("2026-01-31", description="End date (YYYY-MM-DD)"),
+    gateClosureTime: str = Query("11:00", description="Gate closure run time"),
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+) -> List[SettlementPeriodError]:
+    """Returns half-hourly error profile across all 48 settlement periods."""
+    validate_date_string(startDate, "startDate")
+    validate_date_string(endDate, "endDate")
+
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    aligned_df = processor.align_day_ahead_forecasts(
+        actuals=actuals,
+        forecasts=forecasts,
+        gate_closure_time=gateClosureTime,
+        start_date=startDate,
+        end_date=endDate,
+    )
+
+    if aligned_df.empty:
+        raise HTTPException(status_code=404, detail="No data found for given parameters")
+
+    period_errors: List[SettlementPeriodError] = []
+    for sp, grp in sorted(aligned_df.groupby("settlementPeriod"), key=lambda x: x[0]):
+        sp_int = int(sp)
+        start_m = (sp_int - 1) * 30
+        time_label = f"{start_m // 60:02d}:{start_m % 60:02d} - {(start_m + 30) // 60:02d}:{(start_m + 30) % 60:02d}"
+        gf = grp["forecastGenerationMW"].values
+        ga = grp["actualGenerationMW"].values
+        period_errors.append(
+            SettlementPeriodError(
+                periodNumber=sp_int,
+                timeLabel=time_label,
+                avgActualMW=round(float(np.mean(ga)), 2),
+                avgForecastMW=round(float(np.mean(gf)), 2),
+                maeMW=round(calculate_mae(gf, ga), 2),
+                biasMW=round(calculate_mbe(gf, ga), 2),
+            )
+        )
+    return period_errors
+
+
+@router.post(
+    "/procurement/thermal-advisor",
+    response_model=ThermalProcurementResponse,
+    tags=["Trading & Hedging"],
+    summary="Accepts ThermalProcurementRequest and returns hourly thermal procurement recommendation with quantified risk margins",
+)
+async def post_thermal_advisor(
+    request: ThermalProcurementRequest,
+    elexon_client: ElexonClient = Depends(get_elexon_client),
+    processor: DataProcessor = Depends(get_data_processor),
+    metrics_engine: MetricsEngine = Depends(get_metrics_engine),
+) -> ThermalProcurementResponse:
+    """Calculates hourly thermal procurement schedule with safety reserve margins based on forecast errors."""
+    target_date = request.targetDate or request.target_date or "2026-01-15"
+    validate_date_string(target_date, "targetDate")
+
+    actuals, forecasts = elexon_client.get_or_create_january_2026_data()
+    aligned_df = processor.align_day_ahead_forecasts(
+        actuals=actuals,
+        forecasts=forecasts,
+        delivery_date=target_date,
+        gate_closure_time=request.gateClosureTime,
+    )
+
+    if aligned_df.empty:
+        aligned_df = processor.align_day_ahead_forecasts(
+            actuals=actuals,
+            forecasts=forecasts,
+            delivery_date="2026-01-15",
+            gate_closure_time=request.gateClosureTime,
+        )
+
+    # Calculate percentile safety buffer
+    p_level = max(1.0, min(99.0, request.safetyBufferPercentile))
+    f_all = aligned_df["forecastGenerationMW"].values
+    a_all = aligned_df["actualGenerationMW"].values
+    shortfalls = np.maximum(0.0, f_all - a_all)
+    safety_buffer = float(np.percentile(shortfalls, p_level)) if np.any(shortfalls > 0) else float(np.percentile(np.abs(f_all - a_all), p_level))
+
+    # Customer demand curve (custom or typical UK winter demand)
+    n_records = len(aligned_df)
+    if request.customerDemandMW is not None and request.customerDemandMW > 0:
+        demand_profile = np.full(n_records, float(request.customerDemandMW))
+    else:
+        demand_profile = metrics_engine._generate_typical_uk_winter_demand(n_records)
+
+    hourly_schedule: List[HourlyThermalScheduleItem] = []
+    total_thermal_mwh = 0.0
+
+    for idx, (_, row) in enumerate(aligned_df.iterrows()):
+        sp = int(row["settlementPeriod"])
+        start_m = (sp - 1) * 30
+        time_slot = f"{start_m // 60:02d}:{start_m % 60:02d} - {(start_m + 30) // 60:02d}:{(start_m + 30) % 60:02d}"
+        d_val = float(demand_profile[idx])
+        fc_wind = float(row["forecastGenerationMW"])
+
+        # Expected Thermal: max(0, Demand(t) - Forecast(t))
+        thermal_exp = max(0.0, d_val - fc_wind)
+
+        # Conservative P-percentile Safety Procure: max(0, Demand(t) - (Forecast(t) - SafetyBuffer))
+        thermal_cons = max(0.0, d_val - (fc_wind - safety_buffer))
+
+        # Safety reserve volume
+        safety_reserve = thermal_cons - thermal_exp
+
+        total_thermal_mwh += thermal_exp * 0.5
+
+        hourly_schedule.append(
+            HourlyThermalScheduleItem(
+                time=time_slot,
+                demand=round(d_val, 1),
+                forecastWind=round(fc_wind, 1),
+                recommendedThermalProcureMW=round(thermal_exp, 1),
+                safetyReserveMW=round(safety_reserve, 1),
+            )
+        )
+
+    peak_cap = round(float(np.max([item.recommendedThermalProcureMW for item in hourly_schedule])), 1) if hourly_schedule else 0.0
+
+    return ThermalProcurementResponse(
+        targetDate=target_date,
+        hourlySchedule=hourly_schedule,
+        total_energy_procured_mwh=round(total_thermal_mwh, 2),
+        total_thermal_capacity_needed_mw=peak_cap,
+    )
+
+
+# =============================================================================
+# 3. OPERATIONAL PORTAL & LEGACY ROUTE SUPPORT
+# =============================================================================
+
+@router.get(
     "/forecast/day-ahead",
     response_model=DayAheadForecastResponse,
     tags=["Day-Ahead Trading"],
@@ -71,20 +491,15 @@ async def get_day_ahead_forecast(
     processor: DataProcessor = Depends(get_data_processor),
     metrics_engine: MetricsEngine = Depends(get_metrics_engine),
 ) -> DayAheadForecastResponse:
-    # Resolve target delivery date (Tomorrow if Day-Ahead, or today)
     if not target_date:
         target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    logger.info(f"Day-Ahead forecast request for target delivery date: {target_date} (Gate: {gate_closure_id})")
-
-    # Check cache if not force refreshing
     cached_periods = None if force_refresh else processor.load_cache(target_date)
 
     if cached_periods:
         periods = cached_periods
         data_source = "cached_archive"
     else:
-        # Fetch from Elexon client
         forecast_raw = await elexon_client.fetch_day_ahead_wind_forecast(target_date)
         actual_raw = await elexon_client.fetch_wind_actual_outturn(target_date)
         prices_raw = await elexon_client.fetch_system_prices(target_date)
@@ -98,7 +513,6 @@ async def get_day_ahead_forecast(
         )
         data_source = "elexon_insights"
 
-    # Compute quantitative verification metrics
     metrics = metrics_engine.compute_quantitative_metrics(periods)
 
     gate_names = {
@@ -234,7 +648,6 @@ async def get_horizon_decay(
     )
 
 
-
 @router.post(
     "/trading/thermal-procurement",
     response_model=ThermalProcurementResponse,
@@ -247,7 +660,7 @@ async def calculate_thermal_procurement(
     processor: DataProcessor = Depends(get_data_processor),
     metrics_engine: MetricsEngine = Depends(get_metrics_engine),
 ) -> ThermalProcurementResponse:
-    target_date = params.target_date or (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    target_date = params.targetDate or params.target_date or (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     periods = processor.load_cache(target_date)
 
     if not periods:

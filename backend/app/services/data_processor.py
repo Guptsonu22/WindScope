@@ -79,6 +79,8 @@ class DataProcessor:
         forecasts: Union[List[Dict[str, Any]], pd.DataFrame],
         delivery_date: Optional[str] = None,
         gate_closure_time: str = "11:00",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Merge actual wind outturn (FUELHH) and wind forecast (WINDFOR) records
@@ -125,11 +127,16 @@ class DataProcessor:
         df_act["actualGenerationMW"] = pd.to_numeric(df_act[act_gen_col], errors="coerce")
         df_fc["forecastGenerationMW"] = pd.to_numeric(df_fc[fc_gen_col], errors="coerce")
 
-        # Filter for specific delivery date if requested
+        # Filter for specific delivery date or date range if requested
         if delivery_date:
             target_d = pd.to_datetime(delivery_date).date()
             df_act = df_act[df_act["startTime_dt"].dt.date == target_d].copy()
             df_fc = df_fc[df_fc["startTime_dt"].dt.date == target_d].copy()
+        elif start_date and end_date:
+            s_d = pd.to_datetime(start_date).date()
+            e_d = pd.to_datetime(end_date).date()
+            df_act = df_act[(df_act["startTime_dt"].dt.date >= s_d) & (df_act["startTime_dt"].dt.date <= e_d)].copy()
+            df_fc = df_fc[(df_fc["startTime_dt"].dt.date >= s_d) & (df_fc["startTime_dt"].dt.date <= e_d)].copy()
 
         if df_act.empty or df_fc.empty:
             return pd.DataFrame(columns=[
