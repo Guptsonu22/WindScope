@@ -1,16 +1,8 @@
 import React, { useState } from 'react';
 import {
-  ArrowRight,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Clock,
   Gauge,
-  Lock,
-  PlayCircle,
-  ShieldCheck,
-  TrendingDown,
-  Zap,
 } from 'lucide-react';
 import { Badge } from './ui/Badge';
 import { Card, CardHeader } from './ui/Card';
@@ -227,7 +219,7 @@ export const GateClosureSelector: React.FC<GateClosureSelectorProps> = ({
 
             {/* Stepper Progression Bar */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-2 pt-1">
-              {PRESET_GATES.map((g, idx) => {
+              {PRESET_GATES.map((g) => {
                 const isCurrent = g.id === currentGate.id;
                 const isPastCurrent = g.leadTimeHours <= currentGate.leadTimeHours;
 

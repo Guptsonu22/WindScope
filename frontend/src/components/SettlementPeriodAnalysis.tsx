@@ -16,12 +16,7 @@ import {
 import {
   AlertTriangle,
   BarChart3,
-  Calendar,
   CheckCircle,
-  Clock,
-  Layers,
-  TrendingDown,
-  Zap,
 } from 'lucide-react';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
@@ -106,7 +101,7 @@ export const SettlementPeriodAnalysis: React.FC<SettlementPeriodAnalysisProps> =
   // Calculate high risk period
   const peakErrorPeriod = [...data].sort((a, b) => b.maeMw - a.maeMw)[0] || data[32];
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload;
       return (

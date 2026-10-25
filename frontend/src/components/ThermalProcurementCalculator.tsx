@@ -1,20 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  ArrowRight,
-  BatteryCharging,
   DollarSign,
   Flame,
-  HelpCircle,
-  Info,
-  Percent,
-  Play,
-  RotateCcw,
-  Shield,
-  ShieldAlert,
   ShieldCheck,
   Sliders,
-  TrendingDown,
   Zap,
 } from 'lucide-react';
 import {
@@ -136,7 +126,7 @@ export const ThermalProcurementCalculator: React.FC<ThermalProcurementCalculator
     });
   }, [demandMw, activeBufferMw, periods]);
 
-  const CustomScheduleTooltip = ({ active, payload, label }: any) => {
+  const CustomScheduleTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const row = payload[0].payload;
       return (
@@ -278,6 +268,23 @@ export const ThermalProcurementCalculator: React.FC<ThermalProcurementCalculator
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none"
               />
               <span className="text-[10px] text-slate-500 block">Elexon System Buy Price penalty</span>
+            </div>
+
+            {/* CCGT Fuel Spark Price */}
+            <div className="space-y-1.5 sm:col-span-2">
+              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span>CCGT Fuel Spark Price</span>
+                <span className="font-mono text-cyan-300 font-bold">£{ccgtFuelPriceGbp}/MWh</span>
+              </label>
+              <input
+                type="number"
+                min="40"
+                max="200"
+                step="2.5"
+                value={ccgtFuelPriceGbp}
+                onChange={(e) => setCcgtFuelPriceGbp(Number(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none"
+              />
             </div>
           </div>
         </div>
