@@ -1,545 +1,500 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
+  ArrowRight,
+  BatteryCharging,
+  DollarSign,
   Flame,
+  HelpCircle,
+  Info,
   Percent,
   Play,
+  RotateCcw,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Sliders,
+  TrendingDown,
+  Zap,
 } from 'lucide-react';
+import {
+  Area,
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { Card, CardHeader } from './ui/Card';
 import { Badge } from './ui/Badge';
-import {
-  ThermalGapAnalysis,
-  ThermalProcurementRequest,
-  ThermalProcurementResponse,
-} from '../types';
-import { tradeApi } from '../services/api';
+import { SettlementPeriodData } from '../types';
 
 interface ThermalProcurementCalculatorProps {
-  procurementData: ThermalProcurementResponse | null;
-  onRecalculate: (params: ThermalProcurementRequest) => void;
-  isLoading: boolean;
   targetDate?: string;
+  periods?: SettlementPeriodData[];
+  defaultP90Buffer?: number;
 }
 
 export const ThermalProcurementCalculator: React.FC<ThermalProcurementCalculatorProps> = ({
-  procurementData,
-  onRecalculate,
-  isLoading,
   targetDate = '2026-01-15',
+  periods = [],
+  defaultP90Buffer = 1240,
 }) => {
-  const [activeMode, setActiveMode] = useState<'DISPATCH_OPTIMIZER' | 'THERMAL_GAP'>('DISPATCH_OPTIMIZER');
-  const [reserveMargin, setReserveMargin] = useState<number>(12.0);
-  const [ccgtPrice, setCcgtPrice] = useState<number>(78.5);
-  const [ocgtPrice, setOcgtPrice] = useState<number>(135.0);
-  const [bessPrice, setBessPrice] = useState<number>(95.0);
-  const [stagedOrders, setStagedOrders] = useState<number[]>([]);
+  // 1. Consumer Base Demand (MW)
+  const [demandMw, setDemandMw] = useState<number>(25000);
+  // 2. Safety Buffer Percentile
+  const [safetyPercentile, setSafetyPercentile] = useState<number>(90);
+  // 3. System Cashout Penalty Price (£/MWh)
+  const [cashoutPriceGbp, setCashoutPriceGbp] = useState<number>(145.0);
+  // 4. CCGT Spark Spread Fuel Price (£/MWh)
+  const [ccgtFuelPriceGbp, setCcgtFuelPriceGbp] = useState<number>(78.5);
 
-  // Thermal Gap State
-  const [p90Buffer, setP90Buffer] = useState<number>(1450.0);
-  const [gapData, setGapData] = useState<ThermalGapAnalysis | null>(null);
-  const [loadingGap, setLoadingGap] = useState<boolean>(false);
+  // Quick Preset Presets for UK Demand
+  const PRESET_DEMANDS = [
+    { label: 'Off-Peak Night', mw: 18000, desc: 'Overnight minimum baseline' },
+    { label: 'Typical Winter', mw: 25000, desc: 'Average January daytime demand' },
+    { label: 'Peak Cold Snap', mw: 36000, desc: 'Teatime heating & lighting surge' },
+    { label: 'Severe Freeze', mw: 42000, desc: 'Extreme Beast-from-the-East winter stress' },
+  ];
 
-  const fetchThermalGap = async (bufferVal: number) => {
-    setLoadingGap(true);
-    try {
-      const res = await tradeApi.getThermalGap(targetDate, bufferVal);
-      setGapData(res);
-    } catch (err) {
-      console.error('Error fetching thermal gap analysis:', err);
-    } finally {
-      setLoadingGap(false);
+  // Dynamic P90 buffer multiplier based on percentile slider
+  const percentileMultiplier =
+    safetyPercentile === 95 ? 1.25 : safetyPercentile === 90 ? 1.0 : safetyPercentile === 80 ? 0.75 : 0.6;
+  const activeBufferMw = Math.round(defaultP90Buffer * percentileMultiplier);
+
+  // Calculate average predicted wind across periods (or fallback to typical 8,400 MW)
+  const avgWindForecastMw = useMemo(() => {
+    if (!periods || periods.length === 0) return 8400;
+    const sum = periods.reduce((acc, p) => acc + p.forecast_mw, 0);
+    return Math.round(sum / periods.length);
+  }, [periods]);
+
+  // Calculations for executive cards
+  const standardExpectedProcureMw = Math.max(0, demandMw - avgWindForecastMw);
+  const riskAdjustedProcureMw = Math.max(0, demandMw - (avgWindForecastMw - activeBufferMw));
+  const additionalBufferProcureMw = riskAdjustedProcureMw - standardExpectedProcureMw;
+
+  // Financial Imbalance Exposure Avoided
+  // If wind drops by the buffer during peak 4 hours, what would the cashout penalty cost vs hedging beforehand?
+  const cashoutExposureAvoidedGbp = Math.round(
+    additionalBufferProcureMw * 4 * Math.max(0, cashoutPriceGbp - ccgtFuelPriceGbp)
+  );
+
+  // Half-hourly 48 period schedule
+  const scheduleData = useMemo(() => {
+    if (periods && periods.length === 48) {
+      return periods.map((p) => {
+        const wind = p.forecast_mw;
+        const expectedThermal = Math.max(0, demandMw - wind);
+        const riskAdjustedThermal = Math.max(0, demandMw - (wind - activeBufferMw));
+        const peakerNeeded = riskAdjustedThermal > 22000;
+
+        return {
+          sp: p.settlement_period,
+          label: `SP ${p.settlement_period}`,
+          timeSlot: p.time_slot,
+          demand: demandMw,
+          windForecast: wind,
+          expectedThermal: Math.round(expectedThermal),
+          riskAdjustedThermal: Math.round(riskAdjustedThermal),
+          safetyReserve: activeBufferMw,
+          peakerMw: peakerNeeded ? Math.round(riskAdjustedThermal - 22000) : 0,
+          ccgtMw: peakerNeeded ? 22000 : Math.round(riskAdjustedThermal),
+        };
+      });
     }
-  };
 
-  useEffect(() => {
-    if (activeMode === 'THERMAL_GAP') {
-      fetchThermalGap(p90Buffer);
-    }
-  }, [activeMode, targetDate]);
+    // Synthetic fallback for 48 periods
+    return [...Array(48)].map((_, i) => {
+      const sp = i + 1;
+      const startM = (sp - 1) * 30;
+      const timeSlot = `${String(Math.floor(startM / 60)).padStart(2, '0')}:${String(
+        startM % 60
+      ).padStart(2, '0')}`;
+      const windProfile = 8400 + Math.sin((sp / 48) * Math.PI * 2) * 2500;
+      const expectedThermal = Math.max(0, demandMw - windProfile);
+      const riskAdjustedThermal = Math.max(0, demandMw - (windProfile - activeBufferMw));
+      const peakerNeeded = riskAdjustedThermal > 22000;
 
-  const handleRunCalculation = () => {
-    onRecalculate({
-      reserve_margin_pct: reserveMargin,
-      ccgt_heat_rate_price_gbp: ccgtPrice,
-      ocgt_peaker_price_gbp: ocgtPrice,
-      bess_discharge_cost_gbp: bessPrice,
+      return {
+        sp,
+        label: `SP ${sp}`,
+        timeSlot,
+        demand: demandMw,
+        windForecast: Math.round(windProfile),
+        expectedThermal: Math.round(expectedThermal),
+        riskAdjustedThermal: Math.round(riskAdjustedThermal),
+        safetyReserve: activeBufferMw,
+        peakerMw: peakerNeeded ? Math.round(riskAdjustedThermal - 22000) : 0,
+        ccgtMw: peakerNeeded ? 22000 : Math.round(riskAdjustedThermal),
+      };
     });
-  };
+  }, [demandMw, activeBufferMw, periods]);
 
-  const handleStageOrder = (sp: number) => {
-    if (stagedOrders.includes(sp)) {
-      setStagedOrders(stagedOrders.filter((s) => s !== sp));
-    } else {
-      setStagedOrders([...stagedOrders, sp]);
+  const CustomScheduleTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const row = payload[0].payload;
+      return (
+        <div className="bg-slate-950/95 border border-slate-700 p-3 rounded-xl shadow-2xl backdrop-blur-xl text-xs font-mono min-w-[270px]">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+            <span className="font-bold text-slate-100">
+              {row.label} ({row.timeSlot})
+            </span>
+            <Badge variant="amber" size="sm">
+              DEMAND: {row.demand.toLocaleString()} MW
+            </Badge>
+          </div>
+
+          <div className="space-y-1.5 font-sans">
+            <div className="flex justify-between items-center text-cyan-400">
+              <span>Predicted Wind Generation:</span>
+              <span className="font-mono font-bold">{row.windForecast.toLocaleString()} MW</span>
+            </div>
+            <div className="flex justify-between items-center text-slate-300">
+              <span>Standard Procure (Demand - Wind):</span>
+              <span className="font-mono font-bold">{row.expectedThermal.toLocaleString()} MW</span>
+            </div>
+            <div className="flex justify-between items-center text-amber-300 font-semibold pt-1 border-t border-slate-800">
+              <span>P{safetyPercentile} Risk-Adjusted Procure:</span>
+              <span className="font-mono font-bold text-amber-200">
+                {row.riskAdjustedThermal.toLocaleString()} MW
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-purple-400 text-[11px]">
+              <span>Quantified Reserve Margin:</span>
+              <span className="font-mono font-bold">+{row.safetyReserve.toLocaleString()} MW</span>
+            </div>
+          </div>
+        </div>
+      );
     }
+    return null;
   };
-
-  const criticalShortfalls =
-    procurementData?.recommendations.filter((r) => r.recommended_procurement_mw > 0) || [];
 
   return (
-    <div className="space-y-4">
-      {/* Mode Switcher */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-        <button
-          onClick={() => setActiveMode('DISPATCH_OPTIMIZER')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-            activeMode === 'DISPATCH_OPTIMIZER'
-              ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 shadow-glow-amber'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Flame className="h-4 w-4" />
-          Thermal & Flexible Asset Dispatch Optimizer
-        </button>
+    <Card className="p-0 overflow-hidden">
+      <CardHeader
+        title="Thermal & Flexible Asset Procurement Calculator"
+        subtitle={`Hedging Decision Tool: Calculate risk-adjusted thermal replacement procurement for GB delivery on ${targetDate}`}
+        badge={
+          <Badge variant="amber" size="sm" dot>
+            Risk Decision Engine
+          </Badge>
+        }
+      />
 
-        <button
-          onClick={() => setActiveMode('THERMAL_GAP')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-            activeMode === 'THERMAL_GAP'
-              ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 shadow-glow-cyan'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Shield className="h-4 w-4" />
-          Utility Thermal Gap & P90 Conservative Safety Buffer
-        </button>
-      </div>
-
-      {/* MODE 1: DISPATCH OPTIMIZER */}
-      {activeMode === 'DISPATCH_OPTIMIZER' && (
-        <div className="space-y-4">
-          {/* Control Panel & Hedging Parameters */}
-          <Card className="p-4 bg-slate-900/90 border border-slate-800">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                  <Flame className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-2">
-                    Thermal & Flexible Reserve Procurement Calculator
-                    <Badge variant="amber" size="sm">
-                      Trader Dispatch Tool
-                    </Badge>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Simulate CCGT baseload, OCGT peaker, and BESS capacity calls to hedge wind forecast shortfalls.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={handleRunCalculation}
-                disabled={isLoading}
-                className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-slate-950 font-bold text-xs shadow-lg transition-all disabled:opacity-50"
-              >
-                <Play className={`h-3.5 w-3.5 fill-current ${isLoading ? 'animate-spin' : ''}`} />
-                Run Optimization Engine
-              </button>
-            </div>
-
-            {/* Parameter Sliders & Inputs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800">
-                <div className="flex justify-between items-center text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium flex items-center gap-1">
-                    <Percent className="h-3.5 w-3.5 text-cyan-400" />
-                    Reserve Safety Buffer
-                  </span>
-                  <span className="font-mono font-bold text-cyan-300">{reserveMargin}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="30"
-                  step="1"
-                  value={reserveMargin}
-                  onChange={(e) => setReserveMargin(parseFloat(e.target.value))}
-                  className="w-full accent-cyan-400 bg-slate-800 h-1.5 rounded-lg cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
-                  <span>0% (Tight)</span>
-                  <span>15% (Nominal)</span>
-                  <span>30% (High)</span>
-                </div>
-              </div>
-
-              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800">
-                <div className="flex justify-between items-center text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium">CCGT Baseload Cost</span>
-                  <span className="font-mono font-bold text-amber-300">£{ccgtPrice}/MWh</span>
-                </div>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={ccgtPrice}
-                  onChange={(e) => setCcgtPrice(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs font-mono text-slate-100 focus:outline-none focus:border-amber-400"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">Combined cycle gas turbine</p>
-              </div>
-
-              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800">
-                <div className="flex justify-between items-center text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium">OCGT Peaker Cost</span>
-                  <span className="font-mono font-bold text-orange-400">£{ocgtPrice}/MWh</span>
-                </div>
-                <input
-                  type="number"
-                  step="1.0"
-                  value={ocgtPrice}
-                  onChange={(e) => setOcgtPrice(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs font-mono text-slate-100 focus:outline-none focus:border-orange-400"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">Fast-start open cycle peaker</p>
-              </div>
-
-              <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800">
-                <div className="flex justify-between items-center text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium">BESS Discharge Cost</span>
-                  <span className="font-mono font-bold text-purple-300">£{bessPrice}/MWh</span>
-                </div>
-                <input
-                  type="number"
-                  step="1.0"
-                  value={bessPrice}
-                  onChange={(e) => setBessPrice(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs font-mono text-slate-100 focus:outline-none focus:border-purple-400"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">Battery storage degradation</p>
+      <div className="p-4 sm:p-6 space-y-6">
+        {/* INPUT CONTROLS SECTION */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80">
+          {/* Base Demand Slider & Presets */}
+          <div className="lg:col-span-7 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Sliders className="h-4 w-4 text-amber-400" />
+                Consumer Base System Demand (MW)
+              </label>
+              <div className="flex items-baseline gap-1 font-mono">
+                <span className="text-xl font-black text-amber-400">{demandMw.toLocaleString()}</span>
+                <span className="text-xs text-slate-400">MW</span>
               </div>
             </div>
-          </Card>
 
-          {/* KPI Cards */}
-          {procurementData && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-slate-900/90 border border-amber-900/50 rounded-xl p-3.5">
-                <span className="text-xs text-slate-400">Total Thermal Capacity Needed</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-amber-300">
-                    {procurementData.total_thermal_capacity_needed_mw.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">MW</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Cumulative peak requirements</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
-                <span className="text-xs text-slate-400">Total Energy Volume to Buy</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-slate-100">
-                    {procurementData.total_energy_procured_mwh.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">MWh</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Hedge energy requirement</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
-                <span className="text-xs text-slate-400">Procurement Budget Impact</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-emerald-400">
-                    £{procurementData.total_procurement_budget_gbp.toLocaleString()}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Avoids high cashout penalty</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-rose-950/80 rounded-xl p-3.5">
-                <span className="text-xs text-rose-400 font-semibold">Peak Capacity Call</span>
-                <div className="mt-1.5 flex items-baseline gap-2">
-                  <span className="text-2xl font-bold font-mono text-rose-400">
-                    {procurementData.peak_procurement_mw.toLocaleString()} MW
-                  </span>
-                  <span className="text-xs font-mono text-rose-300 bg-rose-950 px-1.5 py-0.5 rounded">
-                    SP {procurementData.peak_period}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Highest dispatch requirement</p>
-              </div>
-            </div>
-          )}
-
-          {/* Actionable Dispatch Orders Table */}
-          <Card className="overflow-hidden">
-            <CardHeader
-              title="Optimal Dispatch Recommendations by Settlement Period"
-              subtitle="Specific thermal replacement schedules generated for power trading execution"
-              badge={
-                <Badge variant="amber" size="sm">
-                  {criticalShortfalls.length} Critical Half-Hours
-                </Badge>
-              }
+            <input
+              type="range"
+              min="15000"
+              max="45000"
+              step="500"
+              value={demandMw}
+              onChange={(e) => setDemandMw(Number(e.target.value))}
+              className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
             />
 
-            <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-950/80 sticky top-0 z-10 border-b border-slate-800 text-slate-400 font-medium">
-                  <tr>
-                    <th className="py-2.5 px-4 font-mono">SP</th>
-                    <th className="py-2.5 px-3">Time Window</th>
-                    <th className="py-2.5 px-3 text-right">Wind Deficit (MW)</th>
-                    <th className="py-2.5 px-3 text-right">+Reserve (MW)</th>
-                    <th className="py-2.5 px-3 text-right">Procure MW</th>
-                    <th className="py-2.5 px-3">Recommended Asset</th>
-                    <th className="py-2.5 px-3 text-right">Indicative £/MWh</th>
-                    <th className="py-2.5 px-3 text-right">Est. Cost (£)</th>
-                    <th className="py-2.5 px-3 text-center">Urgency</th>
-                    <th className="py-2.5 px-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
-                  {criticalShortfalls.map((item) => {
-                    const isStaged = stagedOrders.includes(item.settlement_period);
-                    const urgencyVariants: Record<string, 'rose' | 'amber' | 'cyan' | 'slate'> = {
-                      CRITICAL: 'rose',
-                      HIGH: 'amber',
-                      MODERATE: 'cyan',
-                      LOW: 'slate',
-                    };
-
-                    return (
-                      <tr
-                        key={item.settlement_period}
-                        className={`hover:bg-slate-800/40 transition-colors ${
-                          item.urgency === 'CRITICAL' ? 'bg-rose-950/20' : ''
-                        }`}
-                      >
-                        <td className="py-2 px-4 font-bold text-slate-100">
-                          SP {item.settlement_period}
-                        </td>
-                        <td className="py-2 px-3 font-sans text-slate-400">{item.time_slot}</td>
-                        <td className="py-2 px-3 text-right text-rose-400 font-semibold">
-                          {item.wind_deficit_mw.toLocaleString()} MW
-                        </td>
-                        <td className="py-2 px-3 text-right text-slate-400">
-                          +{item.required_reserve_mw}
-                        </td>
-                        <td className="py-2 px-3 text-right font-bold text-amber-300">
-                          {item.recommended_procurement_mw.toLocaleString()} MW
-                        </td>
-                        <td className="py-2 px-3 font-sans">
-                          <span className="font-semibold text-slate-200">{item.recommended_asset}</span>
-                        </td>
-                        <td className="py-2 px-3 text-right text-slate-300">
-                          £{item.indicative_spark_spread_price_gbp.toFixed(2)}
-                        </td>
-                        <td className="py-2 px-3 text-right text-emerald-400 font-bold">
-                          £{item.estimated_procurement_cost_gbp.toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <Badge variant={urgencyVariants[item.urgency] || 'slate'} size="sm">
-                            {item.urgency}
-                          </Badge>
-                        </td>
-                        <td className="py-2 px-4 text-center">
-                          <button
-                            onClick={() => handleStageOrder(item.settlement_period)}
-                            className={`px-2.5 py-1 rounded text-[11px] font-sans font-semibold transition-all ${
-                              isStaged
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-                            }`}
-                          >
-                            {isStaged ? 'Staged' : 'Stage Order'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* MODE 2: UTILITY THERMAL GAP & P90 CONSERVATIVE SAFETY BUFFER */}
-      {activeMode === 'THERMAL_GAP' && (
-        <div className="space-y-4">
-          {/* Header & P90 Slider Bar */}
-          <Card className="p-4 bg-slate-900/90 border border-slate-800">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-                  <Shield className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-100 text-sm flex items-center gap-2">
-                    Utility Thermal Gap & P90 Safety Procurement
-                    <Badge variant="cyan" size="sm">
-                      Utility Risk Model
-                    </Badge>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Given Customer Demand(t), computes Thermal_expected = max(0, Demand - Wind) vs Conservative Safety Procure = max(0, Demand - (Wind - P90_Buffer)).
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
+            {/* Presets */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              {PRESET_DEMANDS.map((preset) => (
                 <button
-                  onClick={() => fetchThermalGap(p90Buffer)}
-                  disabled={loadingGap}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs transition-all disabled:opacity-50"
+                  key={preset.label}
+                  onClick={() => setDemandMw(preset.mw)}
+                  className={`p-2 rounded-lg text-left border transition-all ${
+                    demandMw === preset.mw
+                      ? 'bg-amber-500/20 border-amber-500/60 text-white shadow-sm'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
                 >
-                  <Play className={`h-3.5 w-3.5 fill-current ${loadingGap ? 'animate-spin' : ''}`} />
-                  Recalculate Gap
+                  <span className="text-xs font-bold block">{preset.label}</span>
+                  <span className="text-[11px] font-mono font-semibold text-amber-300">
+                    {preset.mw.toLocaleString()} MW
+                  </span>
                 </button>
-              </div>
+              ))}
             </div>
+          </div>
 
-            {/* P90 Buffer Slider */}
-            <div className="pt-4 max-w-xl">
-              <div className="flex justify-between items-center text-xs mb-1.5">
-                <span className="text-slate-300 font-medium flex items-center gap-1.5">
-                  <Sliders className="h-3.5 w-3.5 text-cyan-400" />
-                  Conservative P90 Wind Error Buffer (MW)
+          {/* Confidence Buffer & Price Parameters */}
+          <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3 pl-0 lg:pl-3 lg:border-l lg:border-slate-800/80">
+            {/* Safety Percentile */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
+                  Risk Confidence
                 </span>
-                <span className="font-mono font-bold text-cyan-300">{p90Buffer.toLocaleString()} MW</span>
-              </div>
+                <span className="font-mono text-purple-300 font-bold">P{safetyPercentile}</span>
+              </label>
+              <select
+                value={safetyPercentile}
+                onChange={(e) => setSafetyPercentile(Number(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none"
+              >
+                <option value={75}>P75 Moderate Buffer ({Math.round(defaultP90Buffer * 0.6)} MW)</option>
+                <option value={80}>P80 Standard Buffer ({Math.round(defaultP90Buffer * 0.75)} MW)</option>
+                <option value={90}>P90 Conservative UK Desk ({defaultP90Buffer} MW)</option>
+                <option value={95}>P95 High Resilience ({Math.round(defaultP90Buffer * 1.25)} MW)</option>
+              </select>
+              <span className="text-[10px] text-slate-500 block">Statistical downside coverage</span>
+            </div>
+
+            {/* Imbalance Cashout Price */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <DollarSign className="h-3.5 w-3.5 text-rose-400" />
+                  Cashout Price
+                </span>
+                <span className="font-mono text-rose-300 font-bold">£{cashoutPriceGbp}/MWh</span>
+              </label>
               <input
-                type="range"
-                min="0"
-                max="3000"
-                step="50"
-                value={p90Buffer}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setP90Buffer(val);
-                }}
-                onMouseUp={() => fetchThermalGap(p90Buffer)}
-                onTouchEnd={() => fetchThermalGap(p90Buffer)}
-                className="w-full accent-cyan-400 bg-slate-800 h-1.5 rounded-lg cursor-pointer"
+                type="number"
+                min="50"
+                max="500"
+                step="5"
+                value={cashoutPriceGbp}
+                onChange={(e) => setCashoutPriceGbp(Number(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none"
               />
-              <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
-                <span>0 MW (Risky - Zero Buffer)</span>
-                <span>1,450 MW (Standard UK Winter P90)</span>
-                <span>3,000 MW (Extreme Stress)</span>
-              </div>
+              <span className="text-[10px] text-slate-500 block">Elexon System Buy Price penalty</span>
             </div>
-          </Card>
-
-          {/* Gap KPI Results */}
-          {gapData && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
-                <span className="text-xs text-slate-400">Total Customer Demand</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-slate-100">
-                    {gapData.total_demand_mwh.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">MWh</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Full delivery day volume</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-cyan-900/50 rounded-xl p-3.5">
-                <span className="text-xs text-cyan-400 font-medium">Expected Thermal Needed</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-cyan-300">
-                    {gapData.total_thermal_expected_mwh.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">MWh</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Based on point wind forecast</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-amber-900/50 rounded-xl p-3.5">
-                <span className="text-xs text-amber-400 font-medium">Conservative P90 Safety Procure</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-amber-300">
-                    {gapData.total_thermal_conservative_mwh.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">MWh</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">Insulates against 90% shortfall</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-purple-900/50 rounded-xl p-3.5">
-                <span className="text-xs text-purple-300 font-medium">Imbalance Safety Margin</span>
-                <div className="mt-1.5">
-                  <span className="text-2xl font-bold font-mono text-purple-300">
-                    +{gapData.total_safety_margin_mwh.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-1">MWh</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Peak: {gapData.peak_thermal_conservative_mw} MW (SP {gapData.peak_thermal_period})
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Granular Thermal Gap Table */}
-          {gapData && (
-            <Card className="overflow-hidden">
-              <CardHeader
-                title="Half-Hourly Thermal Gap & Safety Buffer Breakdown"
-                subtitle="Calculates required thermal generation to cover customer demand when wind fluctuates"
-                badge={
-                  <span className="text-xs text-cyan-300 font-mono">
-                    Buffer: {gapData.p90_buffer_mw} MW
-                  </span>
-                }
-              />
-
-              <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-slate-950/80 sticky top-0 z-10 border-b border-slate-800 text-slate-400 font-medium">
-                    <tr>
-                      <th className="py-2.5 px-4 font-mono">SP</th>
-                      <th className="py-2.5 px-3">Time Window</th>
-                      <th className="py-2.5 px-3 text-right">Customer Demand (MW)</th>
-                      <th className="py-2.5 px-3 text-right">Wind Forecast (MW)</th>
-                      <th className="py-2.5 px-3 text-right text-cyan-300">Thermal Expected (MW)</th>
-                      <th className="py-2.5 px-3 text-right text-amber-300">Thermal P90 Conservative (MW)</th>
-                      <th className="py-2.5 px-4 text-right text-purple-300">Imbalance Exposure Risk (MW)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 font-mono">
-                    {gapData.periods.map((p) => {
-                      const isHighExposure = p.imbalance_exposure_mw >= 1000.0;
-
-                      return (
-                        <tr
-                          key={p.settlement_period}
-                          className={`hover:bg-slate-800/40 transition-colors ${
-                            isHighExposure ? 'bg-amber-950/10' : ''
-                          }`}
-                        >
-                          <td className="py-2 px-4 font-bold text-slate-200">
-                            SP {p.settlement_period}
-                          </td>
-                          <td className="py-2 px-3 font-sans text-slate-400">{p.time_slot}</td>
-                          <td className="py-2 px-3 text-right font-bold text-slate-100">
-                            {p.demand_mw.toLocaleString()} MW
-                          </td>
-                          <td className="py-2 px-3 text-right text-cyan-400 font-semibold">
-                            {p.wind_forecast_mw.toLocaleString()} MW
-                          </td>
-                          <td className="py-2 px-3 text-right text-cyan-300 font-bold">
-                            {p.thermal_expected_mw.toLocaleString()} MW
-                          </td>
-                          <td className="py-2 px-3 text-right text-amber-300 font-bold">
-                            {p.thermal_conservative_mw.toLocaleString()} MW
-                          </td>
-                          <td className="py-2 px-4 text-right text-purple-300 font-bold">
-                            +{p.imbalance_exposure_mw.toLocaleString()} MW
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* 4 CORE EXECUTIVE VISUAL BREAKDOWN CARDS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Predicted Wind Contribution */}
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-cyan-900/40 relative overflow-hidden">
+            <div className="absolute top-0 right-0 left-0 h-1 bg-cyan-500" />
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+              <span className="font-semibold text-slate-200">Predicted Wind Contribution</span>
+              <Zap className="h-4 w-4 text-cyan-400" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-1.5 font-mono">
+              <span className="text-2xl font-black text-cyan-300">
+                {avgWindForecastMw.toLocaleString()}
+              </span>
+              <span className="text-xs text-slate-400">MW</span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Provides{' '}
+              <strong className="text-cyan-400 font-mono">
+                {Math.round((avgWindForecastMw / demandMw) * 100)}%
+              </strong>{' '}
+              of consumer load from zero-carbon wind
+            </p>
+          </div>
+
+          {/* Card 2: Standard Expected Thermal Procure */}
+          <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 relative overflow-hidden">
+            <div className="absolute top-0 right-0 left-0 h-1 bg-slate-600" />
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+              <span className="font-semibold text-slate-200">Standard Expected Procure</span>
+              <span className="font-mono text-[10px] text-slate-400">Demand - Wind</span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1.5 font-mono">
+              <span className="text-2xl font-black text-slate-100">
+                {standardExpectedProcureMw.toLocaleString()}
+              </span>
+              <span className="text-xs text-slate-400">MW</span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Unhedged baseline without forecast error safety margin
+            </p>
+          </div>
+
+          {/* Card 3: Risk-Adjusted Recommended Procure (P90) */}
+          <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/60 relative overflow-hidden shadow-lg shadow-amber-950/20">
+            <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-amber-500 via-orange-400 to-amber-300" />
+            <div className="flex items-center justify-between text-xs text-amber-300 mb-1">
+              <span className="font-bold flex items-center gap-1.5">
+                <Flame className="h-4 w-4 text-amber-400" />
+                Recommended Procure (P{safetyPercentile})
+              </span>
+              <span className="font-mono text-[10px] font-bold px-1 rounded bg-amber-950 text-amber-300 border border-amber-800/80">
+                Risk-Adjusted
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1.5 font-mono">
+              <span className="text-2xl font-black text-amber-300">
+                {riskAdjustedProcureMw.toLocaleString()}
+              </span>
+              <span className="text-xs text-amber-400 font-bold">MW</span>
+            </div>
+            <p className="text-[11px] text-amber-200/90 font-medium mt-2 flex items-center gap-1">
+              <span>Includes</span>
+              <span className="font-mono font-bold text-purple-300">+{activeBufferMw.toLocaleString()} MW</span>
+              <span>downside safety reserve</span>
+            </p>
+          </div>
+
+          {/* Card 4: Financial Imbalance Exposure Avoided */}
+          <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/50 relative overflow-hidden">
+            <div className="absolute top-0 right-0 left-0 h-1 bg-emerald-500" />
+            <div className="flex items-center justify-between text-xs text-emerald-300 mb-1">
+              <span className="font-bold flex items-center gap-1.5">
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                Imbalance Penalty Avoided
+              </span>
+              <span className="font-mono text-[10px] px-1 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/80">
+                Hedging Value
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1 font-mono">
+              <span className="text-2xl font-black text-emerald-400">
+                £{cashoutExposureAvoidedGbp.toLocaleString()}
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-300/80 mt-2">
+              Potential cashout penalty saved vs buying at £{cashoutPriceGbp}/MWh penalty price
+            </p>
+          </div>
+        </div>
+
+        {/* FINANCIAL IMBALANCE EXPOSURE WARNING BANNER */}
+        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-rose-500/20 text-rose-300 shrink-0 mt-0.5">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-rose-200 text-sm flex items-center gap-2">
+                Financial Imbalance Exposure Warning
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-900/80 text-rose-300 border border-rose-700/60">
+                  GB Market Rule: BSC Section T
+                </span>
+              </h4>
+              <p className="text-slate-300 mt-1 leading-relaxed">
+                If the utility procures only the unhedged standard amount ({standardExpectedProcureMw.toLocaleString()} MW),
+                a typical 1-in-10 wind drop-off will force the desk into short imbalance settlement at the
+                Elexon System Buy Price (currently £{cashoutPriceGbp.toFixed(2)}/MWh). Procuring the quantified{' '}
+                <strong className="text-amber-300">P{safetyPercentile} buffer of {activeBufferMw.toLocaleString()} MW</strong> ahead
+                of the 11:00 Day-Ahead auction insulates the utility from up to{' '}
+                <strong className="text-emerald-300">£{cashoutExposureAvoidedGbp.toLocaleString()}</strong> in distressed balancing costs.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 48-PERIOD THERMAL GAP SCHEDULE CHART */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Flame className="h-4 w-4 text-amber-400" />
+              Half-Hourly Thermal Procurement Profile Across Day {targetDate}
+            </h4>
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className="text-slate-400">Reserve Factor:</span>
+              <span className="text-purple-300 font-bold">+{activeBufferMw.toLocaleString()} MW</span>
+            </div>
+          </div>
+
+          <div className="h-[340px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={scheduleData} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+
+                <XAxis
+                  dataKey="sp"
+                  tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                  tickFormatter={(val) => `SP${val}`}
+                  stroke="#334155"
+                />
+
+                <YAxis
+                  stroke="#334155"
+                  tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'JetBrains Mono' }}
+                  tickFormatter={(val) => `${val.toLocaleString()} MW`}
+                  domain={[0, 'auto']}
+                />
+
+                <Tooltip content={<CustomScheduleTooltip />} />
+                <Legend
+                  verticalAlign="top"
+                  height={32}
+                  wrapperStyle={{
+                    paddingBottom: '10px',
+                    fontSize: '12px',
+                    fontFamily: 'Inter',
+                  }}
+                />
+
+                {/* Base Customer Demand Reference Line */}
+                <ReferenceLine
+                  y={demandMw}
+                  stroke="#fbbf24"
+                  strokeDasharray="4 4"
+                  strokeWidth={2}
+                  label={{
+                    value: `Consumer Demand: ${demandMw.toLocaleString()} MW`,
+                    fill: '#fbbf24',
+                    fontSize: 11,
+                    position: 'top',
+                  }}
+                />
+
+                {/* Predicted Wind Area */}
+                <Area
+                  type="monotone"
+                  dataKey="windForecast"
+                  name="Predicted Wind Output (MW)"
+                  fill="#06b6d4"
+                  fillOpacity={0.25}
+                  stroke="#06b6d4"
+                  strokeWidth={2}
+                />
+
+                {/* Risk-Adjusted Thermal Procure Bar (Stacked with CCGT & Peaker) */}
+                <Bar
+                  dataKey="ccgtMw"
+                  name="CCGT Baseload Procure (MW)"
+                  fill="#f59e0b"
+                  stackId="procure"
+                  radius={[0, 0, 0, 0]}
+                />
+                <Bar
+                  dataKey="peakerMw"
+                  name="OCGT Peaker Reserve (MW)"
+                  fill="#fb923c"
+                  stackId="procure"
+                  radius={[3, 3, 0, 0]}
+                />
+
+                {/* Risk Adjusted Curve Line */}
+                <Line
+                  type="monotone"
+                  dataKey="riskAdjustedThermal"
+                  name="Total P90 Procurement Curve (MW)"
+                  stroke="#ec4899"
+                  strokeWidth={2.5}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 };

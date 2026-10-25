@@ -9,6 +9,11 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
+  body.theme-light {
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
   /* Custom scrollbar for dense trading data tables */
   ::-webkit-scrollbar {
     width: 6px;
@@ -23,6 +28,13 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: #334155;
+  }
+
+  body.theme-light ::-webkit-scrollbar-track {
+    background: #e2e8f0;
+  }
+  body.theme-light ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
   }
 }
 
@@ -50,4 +62,54 @@
   .live-dot-core {
     @apply relative inline-flex rounded-full h-2.5 w-2.5;
   }
+}
+
+/* Institutional Light Theme Tweaks */
+.theme-light .trading-card {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.theme-light header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .text-white {
+  color: #0f172a !important;
+}
+
+.theme-light .text-slate-100 {
+  color: #0f172a !important;
+}
+
+.theme-light .text-slate-200 {
+  color: #1e293b !important;
+}
+
+.theme-light .text-slate-300 {
+  color: #334155 !important;
+}
+
+.theme-light .text-slate-400 {
+  color: #64748b !important;
+}
+
+.theme-light .bg-slate-900 {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .bg-slate-950 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .border-slate-800 {
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .border-slate-700 {
+  border-color: #cbd5e1 !important;
 }
