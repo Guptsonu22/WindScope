@@ -155,22 +155,19 @@ async def get_wind_overview(
             detail=f"No aligned wind forecast/actual records found for date range {startDate} to {endDate}.",
         )
 
-    # 1. Timeseries points
-    timeseries: List[TimeseriesPoint] = []
-    for _, row in aligned_df.iterrows():
-        f_val = float(row["forecastGenerationMW"])
-        a_val = float(row["actualGenerationMW"]) if pd.notnull(row["actualGenerationMW"]) else None
-        err = float(row["forecastErrorMW"]) if pd.notnull(row["forecastErrorMW"]) else (f_val - a_val if a_val is not None else None)
-        timeseries.append(
-            TimeseriesPoint(
-                startTime=str(row["startTime"]),
-                publishTime=str(row["publishTime"]),
-                forecastMW=round(f_val, 1),
-                actualMW=round(a_val, 1) if a_val is not None else None,
-                errorMW=round(err, 1) if err is not None else None,
-                settlementPeriod=int(row["settlementPeriod"]),
-            )
+    # 1. Timeseries points (fast list comprehension)
+    records = aligned_df.to_dict(orient="records")
+    timeseries: List[TimeseriesPoint] = [
+        TimeseriesPoint(
+            startTime=str(r["startTime"]),
+            publishTime=str(r["publishTime"]),
+            forecastMW=round(float(r["forecastGenerationMW"]), 1),
+            actualMW=round(float(r["actualGenerationMW"]), 1) if pd.notnull(r.get("actualGenerationMW")) else None,
+            errorMW=round(float(r["forecastErrorMW"]), 1) if pd.notnull(r.get("forecastErrorMW")) else None,
+            settlementPeriod=int(r["settlementPeriod"]),
         )
+        for r in records
+    ]
 
     # 2. Mathematical Metric Summary
     f_vals = aligned_df["forecastGenerationMW"].values
@@ -257,22 +254,18 @@ async def get_wind_timeseries(
         end_date=e_date,
     )
 
-    timeseries: List[TimeseriesPoint] = []
-    for _, row in aligned_df.iterrows():
-        f_val = float(row["forecastGenerationMW"])
-        a_val = float(row["actualGenerationMW"]) if pd.notnull(row["actualGenerationMW"]) else None
-        err = float(row["forecastErrorMW"]) if pd.notnull(row["forecastErrorMW"]) else (f_val - a_val if a_val is not None else None)
-        timeseries.append(
-            TimeseriesPoint(
-                startTime=str(row["startTime"]),
-                publishTime=str(row["publishTime"]),
-                forecastMW=round(f_val, 1),
-                actualMW=round(a_val, 1) if a_val is not None else None,
-                errorMW=round(err, 1) if err is not None else None,
-                settlementPeriod=int(row["settlementPeriod"]),
-            )
+    records = aligned_df.to_dict(orient="records")
+    return [
+        TimeseriesPoint(
+            startTime=str(r["startTime"]),
+            publishTime=str(r["publishTime"]),
+            forecastMW=round(float(r["forecastGenerationMW"]), 1),
+            actualMW=round(float(r["actualGenerationMW"]), 1) if pd.notnull(r.get("actualGenerationMW")) else None,
+            errorMW=round(float(r["forecastErrorMW"]), 1) if pd.notnull(r.get("forecastErrorMW")) else None,
+            settlementPeriod=int(r["settlementPeriod"]),
         )
-    return timeseries
+        for r in records
+    ]
 
 
 @router.get(
