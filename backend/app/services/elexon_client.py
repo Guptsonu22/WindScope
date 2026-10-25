@@ -25,6 +25,8 @@ class ElexonClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.parquet_path = self.cache_dir / "jan_2026_wind_data.parquet"
         self.json_path = self.cache_dir / "jan_2026_wind_data.json"
+        self._mem_actuals: Optional[List[Dict[str, Any]]] = None
+        self._mem_forecasts: Optional[List[Dict[str, Any]]] = None
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {
@@ -144,6 +146,9 @@ class ElexonClient:
         - Multiple forecast publish times per settlement period (D-2 12:00, D-1 06:00,
           D-1 10:30, D-1 14:00, D-1 18:00, Intraday H-4) to simulate Day-Ahead Gate Closure.
         """
+        if self._mem_actuals is not None and self._mem_forecasts is not None:
+            return self._mem_actuals, self._mem_forecasts
+
         if self.parquet_path.exists():
             try:
                 df = pd.read_parquet(self.parquet_path)
@@ -153,11 +158,15 @@ class ElexonClient:
                 actuals = actuals_df.to_dict(orient="records")
                 forecasts = forecasts_df.to_dict(orient="records")
                 if len(actuals) == 1488:
+                    self._mem_actuals = actuals
+                    self._mem_forecasts = forecasts
                     return actuals, forecasts
             except Exception as e:
                 logger.warning(f"Error reading {self.parquet_path}: {e}. Re-generating verified dataset.")
 
         actuals, forecasts = self._generate_realistic_january_2026_records()
+        self._mem_actuals = actuals
+        self._mem_forecasts = forecasts
 
         # Combine into DataFrame and save as Parquet
         try:
