@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -48,7 +48,7 @@ async def root_health_check() -> HealthResponse:
         status="ok",
         version=settings.VERSION,
         environment=settings.ENVIRONMENT,
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         elexon_api_status="ready",
         services={
             "api_server": "healthy",

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -8,7 +8,7 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded", "error"] = Field(default="ok", description="Overall system health")
     version: str = Field(default="1.0.0", description="API version")
     environment: str = Field(default="production", description="Runtime environment")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     elexon_api_status: str = Field(default="ready", description="Status of Elexon BMRS connection")
     services: Dict[str, str] = Field(
         default_factory=lambda: {

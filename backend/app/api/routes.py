@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -36,7 +36,7 @@ async def get_health(
         status=status,
         version=settings.VERSION,
         environment=settings.ENVIRONMENT,
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         elexon_api_status=elexon_health.get("status", "unknown"),
         services={
             "elexon_client": elexon_health.get("status", "unknown"),
@@ -70,7 +70,7 @@ async def get_day_ahead_forecast(
 ) -> DayAheadForecastResponse:
     # Resolve target delivery date (Tomorrow if Day-Ahead, or today)
     if not target_date:
-        target_date = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+        target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     logger.info(f"Day-Ahead forecast request for target delivery date: {target_date} (Gate: {gate_closure_id})")
 
@@ -108,7 +108,7 @@ async def get_day_ahead_forecast(
         target_date=target_date,
         gate_closure_id=gate_closure_id,
         gate_closure_name=gate_names.get(gate_closure_id, "Custom Gate Closure"),
-        last_updated=datetime.utcnow().isoformat() + "Z",
+        last_updated=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         data_source=data_source,
         periods=periods,
         metrics=metrics,
@@ -128,7 +128,7 @@ async def get_metrics_summary(
     metrics_engine: MetricsEngine = Depends(get_metrics_engine),
 ) -> QuantitativeMetrics:
     if not target_date:
-        target_date = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+        target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     periods = processor.load_cache(target_date)
     if not periods:
@@ -152,7 +152,7 @@ async def calculate_thermal_procurement(
     processor: DataProcessor = Depends(get_data_processor),
     metrics_engine: MetricsEngine = Depends(get_metrics_engine),
 ) -> ThermalProcurementResponse:
-    target_date = params.target_date or (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+    target_date = params.target_date or (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     periods = processor.load_cache(target_date)
 
     if not periods:
@@ -202,8 +202,8 @@ async def get_thermal_procurement(
     summary="List available UK power auction gate closures and physical notification milestones",
 )
 async def get_gate_closures() -> List[GateClosureOption]:
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    tomorrow_str = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     return [
         GateClosureOption(

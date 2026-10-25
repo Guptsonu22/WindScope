@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #080c14;
+    color: #e2e8f0;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom scrollbar for dense trading data tables */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #090d16;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+@layer components {
+  .trading-card {
+    @apply bg-slate-900/90 border border-slate-800/80 rounded-xl shadow-lg backdrop-blur-md transition-all duration-200;
+  }
+
+  .trading-card-interactive {
+    @apply trading-card hover:border-slate-700/90 hover:shadow-cyan-950/20 hover:shadow-xl;
+  }
+
+  .stat-value {
+    @apply font-mono font-bold tracking-tight text-slate-100;
+  }
+
+  .live-dot {
+    @apply relative flex h-2.5 w-2.5;
+  }
+
+  .live-dot-ping {
+    @apply animate-ping absolute inline-flex h-full w-full rounded-full opacity-75;
+  }
+
+  .live-dot-core {
+    @apply relative inline-flex rounded-full h-2.5 w-2.5;
+  }
+}
