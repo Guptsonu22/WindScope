@@ -58,6 +58,70 @@ class QuantitativeMetrics(BaseModel):
     estimated_cashout_exposure_gbp: float = Field(
         ..., description="Estimated total imbalance settlement liability (£)"
     )
+    # Advanced Statistical & Risk Metrics
+    wmape_pct: Optional[float] = Field(None, description="Weighted Mean Absolute Percentage Error (%)")
+    mbe_mw: Optional[float] = Field(None, description="Mean Bias Error in MW (positive = overforecast)")
+    pearson_correlation: Optional[float] = Field(None, description="Pearson correlation coefficient r")
+    r2_score: Optional[float] = Field(None, description="Coefficient of determination R²")
+    p10_error_mw: Optional[float] = Field(None, description="10th percentile of signed error (MW)")
+    p50_error_mw: Optional[float] = Field(None, description="Median signed error (MW)")
+    p90_error_mw: Optional[float] = Field(None, description="90th percentile of signed error (MW)")
+    p95_error_mw: Optional[float] = Field(None, description="95th percentile of signed error (MW)")
+    p90_abs_error_mw: Optional[float] = Field(None, description="90th percentile of absolute error (MW)")
+
+
+class SettlementPeriodErrorProfile(BaseModel):
+    """Half-hourly forecast accuracy and uncertainty profile across SP 1 to 48."""
+    settlement_period: int = Field(ge=1, le=50)
+    time_slot: str
+    mean_forecast_mw: float
+    mean_actual_mw: float
+    mae_mw: float
+    rmse_mw: float
+    wmape_pct: float
+    mbe_mw: float
+    p90_abs_error_mw: float
+    uncertainty_tier: Literal["HIGH_VOLATILITY", "MODERATE", "STABLE"]
+
+
+class HorizonDecayMetric(BaseModel):
+    """Forecast accuracy comparison across lead-time horizons."""
+    horizon: str
+    lead_time_hours: float
+    mae_mw: float
+    rmse_mw: float
+    wmape_pct: float
+    mbe_mw: float
+    pearson_r: float
+    mae_reduction_pct_vs_day_ahead: float
+
+
+class ThermalGapPeriod(BaseModel):
+    """Half-hourly thermal procurement requirement under expected and conservative P90 strategies."""
+    settlement_period: int = Field(ge=1, le=50)
+    time_slot: str
+    demand_mw: float
+    wind_forecast_mw: float
+    wind_actual_mw: Optional[float] = None
+    thermal_expected_mw: float
+    thermal_conservative_mw: float
+    p90_buffer_mw: float
+    imbalance_exposure_mw: float
+
+
+class ThermalGapAnalysis(BaseModel):
+    """Procurement decision-support gap analysis balancing wind forecast with thermal dispatch."""
+    target_date: str
+    p90_buffer_mw: float
+    total_demand_mwh: float
+    total_thermal_expected_mwh: float
+    total_thermal_conservative_mwh: float
+    peak_thermal_expected_mw: float
+    peak_thermal_conservative_mw: float
+    peak_thermal_period: int
+    total_safety_margin_mwh: float
+    periods: List[ThermalGapPeriod]
+
 
 
 class ThermalProcurementItem(BaseModel):

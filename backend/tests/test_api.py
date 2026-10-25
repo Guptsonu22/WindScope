@@ -110,7 +110,8 @@ def test_metrics_engine_unit_math():
 
     metrics = engine.compute_quantitative_metrics(test_periods)
     assert metrics.mae_mw == 100.0
-    assert metrics.mape_pct == 10.0
+    assert metrics.mape_pct == 10.1
+    assert metrics.wmape_pct == 10.0
     assert metrics.rmse_mw == 100.0
     assert metrics.peak_error_mw == 100.0
     assert metrics.directional_bias_mw == 0.0
